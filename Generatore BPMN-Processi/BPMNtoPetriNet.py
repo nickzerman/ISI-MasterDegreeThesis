@@ -1,3 +1,6 @@
+from datetime import datetime
+import pandas as pd
+
 from random_diagram_generation import SEED_STRING, replace_random_underscore, replace_underscores
 from sese_diagram import PARSER, print_sese_diagram, print_tree, dot_tree
 from stats import max_nested_xor, max_independent_xor
@@ -5,6 +8,9 @@ from lark import Lark, Tree, Token
 from pm4py.objects.petri_net.obj import PetriNet, Marking
 from pm4py.objects.petri_net.utils import petri_utils
 from pm4py import view_petri_net, save_vis_petri_net
+
+from pm4py.objects.log.exporter.xes import exporter as xes_exporter
+from pm4py.algo import simulation
 
 def createSubnet(net, tree, parent_place, region_counter):
     type = tree.data
@@ -43,7 +49,11 @@ def createSubnet(net, tree, parent_place, region_counter):
 
     if type == "xor":
         region_counter += 1
+        end = ""
 
+        '''
+        SE VOGLIAMO EVITARE DI METTERE IL NOME DELLE REGIONI ANCHE SE CI SONO SOLAMENTE TASK (PERO' NON RIUSCIAMO A VEDERE LE EFFETTIVE REGIONI NELLA PETRI NET
+        
         #Se il figlio è un task non vado ad iniziare una nuova regione
         end = "" #Ho solo un processo di end
         if tree.children[0].data == "task":
@@ -54,7 +64,11 @@ def createSubnet(net, tree, parent_place, region_counter):
             region_counter += 1
             start1 = "start_R" + str(region_counter)
             end1 = "end_R" + str(region_counter)
-            end += "end_R" + str(region_counter) + "_"
+            end += "end_R" + str(region_counter) + "_"'''
+
+        start1 = "start_R" + str(region_counter)
+        end1 = "end_R" + str(region_counter)
+        end += "end_R" + str(region_counter)
 
         # Creo transizioni e place per la prima parte
         t_start1 = petri_utils.add_transition(net,start1,start1)
@@ -65,14 +79,18 @@ def createSubnet(net, tree, parent_place, region_counter):
         region_counter = subnet1[2]
 
         # Se il figlio è un task non vado ad iniziare una nuova regione
-        if tree.children[1].data == "task":
+        '''if tree.children[1].data == "task":
             start2 = ""
             end2 = ""
             end += "."
         else:
             start2 = "start_R" + str(region_counter)
             end2 = "end_R" + str(region_counter)
-            end += "end_R" + str(region_counter)
+            end += "end_R" + str(region_counter)'''
+
+        start2 = "start_R" + str(region_counter)
+        end2 = "end_R" + str(region_counter)
+        end += "end_R" + str(region_counter)
 
         # Creo transizioni e place per la seconda parte
         t_start2 = petri_utils.add_transition(net, start2, start2)
@@ -124,6 +142,34 @@ def createSubnet(net, tree, parent_place, region_counter):
 
         return [parent_place, p_end, region_counter]
 
+def visitePetriNet(transitions):
+    regions = ["R0"] #Aggiungo R0 di base
+    tasks = []
+
+    for transition in transitions:
+        print(transition.label)
+        splits = transition.label.split("_")
+        if splits[0]=="start":
+            if splits[1][0] == "R": #Regione
+                if splits[1] not in regions:
+                    regions.append(splits[1])
+            else:
+                if splits[1] not in tasks:
+                    tasks.append(splits[1])
+
+    return regions, tasks
+
+def getEncoding(log,regions,tasks):
+    traceEncoded_regions = {r: [] for r in regions}
+    traceEncoded_tasks = {t: [] for t in tasks}
+    cancelletto = []
+    for trace in log:
+
+        for event in trace:
+            operation = event["concept:name"]
+
+    return traceEncoded_regions, traceEncoded_tasks, cancelletto
+
 
 if __name__ == "__main__":
     current_string = SEED_STRING
@@ -137,16 +183,18 @@ if __name__ == "__main__":
     tree = PARSER.parse(process)
     print(tree)
 
+    #Inizializzo Oggetto Petri Net
     net = PetriNet('Net')
     initial_marking = Marking()
     final_marking = Marking()
     root = petri_utils.add_place(net, "root")
     region_counter = 0
-    netValue = createSubnet(net, tree, root, region_counter)
+    netValue = createSubnet(net, tree, root, region_counter) #Avvio il processo per creare la Petri Net
 
     initial_marking[netValue[0]] = 1
     final_marking[netValue[1]] = 1
 
+    #Creo output .png della Petri Net
     file_path_png = "petri_net_output.png"
 
     save_vis_petri_net(
@@ -156,6 +204,30 @@ if __name__ == "__main__":
         file_path_png,
         format="png"  # Specifica il formato
     )
+
+    #Mi prendo tutte le varie regioni e tutte le task in modo tale da poter lavorare sulle tracce come preferisco
+    regions, tasks = visitePetriNet(net.transitions)
+    #print("regions:", regions)
+    #print("tasks:", tasks)
+
+    #Creazione delle tracce effettive
+    num_traces = 10
+
+    #Definiamo i parametri richiesti dalla funzione di simulazione
+    parameters = {
+        "noTraces": num_traces,
+        "initialTimestamp": datetime.now()
+    }
+
+    simulated_log = simulation.playout.petri_net.algorithm.apply(net,initial_marking,final_marking,parameters) #Variante di Default --> BASIC PLAYOUT (in teoria è random)
+
+    '''print(simulated_log)
+
+    print(f"Esempio Case ID: {simulated_log[0].attributes['concept:name']}")
+    print(f"Timestamp Start: {simulated_log[0][0]['time:timestamp']}")
+    print(f"Timestamp Seconda Attività: {simulated_log[0][1]['time:timestamp']}")'''
+
+    traceEncoded_regions, traceEncoded_tasks, cancelletto = getEncoding(simulated_log, regions, tasks)
 
 
 
