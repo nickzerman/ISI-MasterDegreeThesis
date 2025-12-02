@@ -167,6 +167,7 @@ def getEncoding(log,regions,tasks):
 
         for event in trace:
             operation = event["concept:name"]
+            ciao = "ciao"
 
     return traceEncoded_regions, traceEncoded_tasks, cancelletto
 
