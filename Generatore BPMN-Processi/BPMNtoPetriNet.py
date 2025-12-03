@@ -1,5 +1,6 @@
 from datetime import datetime
 import pandas as pd
+from pm4py.objects.petri_net.utils.petri_utils import remove_place, get_transition_by_name
 
 from random_diagram_generation import SEED_STRING, replace_random_underscore, replace_underscores
 from sese_diagram import PARSER, print_sese_diagram, print_tree, dot_tree
@@ -35,109 +36,108 @@ def createSubnet(net, tree, parent_place, region_counter):
         return [p_start, p_end, region_counter]
 
     if type == "sequential":
-        #if not tree.children[0].data == "task": #Sto entrando in una nuova regione, quindi aumento il counter
-        #    region_counter += 1
-        subnet1 = createSubnet(net, tree.children[0], parent_place, region_counter)
-        region_counter = subnet1[2]
-
-        #if not tree.children[1].data == "task": #Sto entrando in una nuova regione, quindi aumento il counter
-        #    region_counter += 1
-        subnet2 = createSubnet(net, tree.children[1], subnet1[1], region_counter)
-        region_counter = subnet2[2]
-
-        return [parent_place, subnet2[1], region_counter]
-
-    if type == "xor":
-        region_counter += 1
-        end = ""
-
-        '''
-        SE VOGLIAMO EVITARE DI METTERE IL NOME DELLE REGIONI ANCHE SE CI SONO SOLAMENTE TASK (PERO' NON RIUSCIAMO A VEDERE LE EFFETTIVE REGIONI NELLA PETRI NET
-        
-        #Se il figlio è un task non vado ad iniziare una nuova regione
-        end = "" #Ho solo un processo di end
-        if tree.children[0].data == "task":
-            start1 = ""
-            end1 = ""
-            end += "._"
-        else:
-            region_counter += 1
-            start1 = "start_R" + str(region_counter)
-            end1 = "end_R" + str(region_counter)
-            end += "end_R" + str(region_counter) + "_"'''
-
-        start1 = "start_R" + str(region_counter)
-        end1 = "end_R" + str(region_counter)
-        end += "end_R" + str(region_counter)
-
-        # Creo transizioni e place per la prima parte
-        t_start1 = petri_utils.add_transition(net,start1,start1)
-        t_end1 = petri_utils.add_transition(net, end1, end1)
-        p_start1 = petri_utils.add_place(net,start1)
-
-        subnet1 = createSubnet(net, tree.children[0], p_start1, region_counter)
-        region_counter = subnet1[2]
-
-        # Se il figlio è un task non vado ad iniziare una nuova regione
-        '''if tree.children[1].data == "task":
-            start2 = ""
-            end2 = ""
-            end += "."
-        else:
-            start2 = "start_R" + str(region_counter)
-            end2 = "end_R" + str(region_counter)
-            end += "end_R" + str(region_counter)'''
-
-        start2 = "start_R" + str(region_counter)
-        end2 = "end_R" + str(region_counter)
-        end += "end_R" + str(region_counter)
-
-        # Creo transizioni e place per la seconda parte
-        t_start2 = petri_utils.add_transition(net, start2, start2)
-        t_end2 = petri_utils.add_transition(net, end2, end2)
-        p_start2 = petri_utils.add_place(net, start2)
-
-        p_end = petri_utils.add_place(net, end)
-
-        subnet2 = createSubnet(net, tree.children[1], p_start2, region_counter)
-        region_counter = subnet2[2]
-
-        # Creo tutti gli archi
-        petri_utils.add_arc_from_to(parent_place, t_start1, net)
-        petri_utils.add_arc_from_to(parent_place, t_start2, net)
-        petri_utils.add_arc_from_to(t_start1, p_start1, net)
-        petri_utils.add_arc_from_to(t_start2, p_start2, net)
-        petri_utils.add_arc_from_to(subnet1[1], t_end1, net)
-        petri_utils.add_arc_from_to(subnet2[1], t_end2, net)
-        petri_utils.add_arc_from_to(t_end1, p_end, net)
-        petri_utils.add_arc_from_to(t_end2, p_end, net)
-
-        return [parent_place, p_end, region_counter]
-
-    if type == "parallel":
-        region_counter += 1
-
-        # Creo subito transizioni e place
+        #Inizializzo la nuova regione sequenziale (2 places - uno per inizio e fine e 2 transitions - stessa cosa)
         start = "start_R" + str(region_counter)
         end = "end_R" + str(region_counter)
         t_start = petri_utils.add_transition(net, start, start)
         t_end = petri_utils.add_transition(net, end, end)
-        p_start1 = petri_utils.add_place(net,start)
-        p_start2 = petri_utils.add_place(net,end)
-        p_end = petri_utils.add_place(net,end)
+        p_start = petri_utils.add_place(net,start)
+        p_end = petri_utils.add_place(net, end)
+        region_counter += 1
 
-        subnet1 = createSubnet(net, tree.children[0], p_start1, region_counter)
+        #Creo i primi archi - dal padre alla transizione di inizio regione sequenziale al place di inizio regione sequenziale
+        petri_utils.add_arc_from_to(parent_place, t_start, net)
+        petri_utils.add_arc_from_to(t_start, p_start, net)
+
+        #Prima 'sottorete' collegata al place di inizio regione
+        subnet1 = createSubnet(net, tree.children[0], p_start, region_counter)
+        p_end1 = subnet1[1]
         region_counter = subnet1[2]
 
-        subnet2 = createSubnet(net, tree.children[1], p_start2, region_counter)
+        #Secondo 'sottorete' collegata al place di fine 'sottorete' precedente
+        subnet2 = createSubnet(net, tree.children[1], p_end1, region_counter)
+        p_end2 = subnet2[1]
         region_counter = subnet2[2]
 
-        #Creo archi
+        #Creo gli ultimi archi - dalla fine della seconda 'sottorete' alla transizione di fine regione sequenziale al place di fine regione sequenziale
+        petri_utils.add_arc_from_to(p_end2, t_end, net)
+        petri_utils.add_arc_from_to(t_end, p_end, net)
+
+        return [parent_place, p_end, region_counter]
+
+    if type == "xor":
+        # Inizializzo la nuova regione xor (3 places - uno per inizio, uno intermedio e uno per la fine e 2 transitions - una fine e un inizio comune)
+        start = "start_R" + str(region_counter)
+        inter = "inter_R" + str(region_counter)
+        end = "end_R" + str(region_counter)
+        t_start = petri_utils.add_transition(net, start, start)
+        t_end = petri_utils.add_transition(net, end, end)
+        p_start = petri_utils.add_place(net, start)
+        p_inter = petri_utils.add_place(net, inter)
+        p_end = petri_utils.add_place(net, end)
+        region_counter += 1
+
+        # Creo i primi archi - dal padre alla transizione di inizio regione disgiunzione al place di inizio regione disgiunzione
+        petri_utils.add_arc_from_to(parent_place, t_start, net)
+        petri_utils.add_arc_from_to(t_start, p_start, net)
+
+        # Prima 'sottorete' collegata al place di inizio regione
+        subnet1 = createSubnet(net, tree.children[0], p_start, region_counter)
+        p_end1 = subnet1[1]
+        region_counter = subnet1[2]
+
+        # Rimuovo l'ultimo place della sottorete perchè poi andrò a collegare la transition al place di regione intermedia
+        name = subnet1[1].name
+        t_end1 = get_transition_by_name(net, name)
+        remove_place(net, subnet1[1])
+
+        # Secondo 'sottorete' collegata al place di inizio regione
+        subnet2 = createSubnet(net, tree.children[1], p_start, region_counter)
+        p_end2 = subnet2[1]
+        region_counter = subnet2[2]
+
+        # Rimuovo l'ultimo place della sottorete perchè poi andrò a collegare la transition al place di regione intermedia
+        name = subnet2[1].name
+        t_end2 = get_transition_by_name(net, name)
+        remove_place(net, subnet2[1])
+
+        # Creo gli ultimi archi - dalle transazioni di fine sottorete al place intermedio di regione, poi alla transizione di fine regione e successivamente al place di fine regione
+        petri_utils.add_arc_from_to(t_end1, p_inter, net)
+        petri_utils.add_arc_from_to(t_end2, p_inter, net)
+        petri_utils.add_arc_from_to(p_inter, t_end, net)
+        petri_utils.add_arc_from_to(t_end, p_end, net)
+
+        return [parent_place, p_end, region_counter]
+
+    if type == "parallel":
+        # Inizializzo la nuova regione parallel (2 transitions - inizio e fine comune ad entrambi i rami e 3 places - 1 inizio per ramo e 1 fine in comune)
+        start = "start_R" + str(region_counter)
+        end = "end_R" + str(region_counter)
+        t_start = petri_utils.add_transition(net, start, start)
+        t_end = petri_utils.add_transition(net, end, end)
+        p_start1 = petri_utils.add_place(net, start)
+        p_start2 = petri_utils.add_place(net, start)
+        p_end = petri_utils.add_place(net, end)
+        region_counter += 1
+
+        # Creo i primi archi - dal padre alla transizione di inizio regione parallela ai place di inizio regione parallela privata ai rami
         petri_utils.add_arc_from_to(parent_place, t_start, net)
         petri_utils.add_arc_from_to(t_start, p_start1, net)
         petri_utils.add_arc_from_to(t_start, p_start2, net)
-        petri_utils.add_arc_from_to(subnet1[1], t_end, net)
-        petri_utils.add_arc_from_to(subnet2[1], t_end, net)
+
+        # Prima 'sottorete' collegata al place di inizio regione del ramo 'A'
+        subnet1 = createSubnet(net, tree.children[0], p_start1, region_counter)
+        p_end1 = subnet1[1]
+        region_counter = subnet1[2]
+
+        # Secondo 'sottorete' collegata al place di inizio regione del ramo 'B'
+        subnet2 = createSubnet(net, tree.children[1], p_start2, region_counter)
+        p_end2 = subnet2[1]
+        region_counter = subnet2[2]
+
+        # Creo gli ultimi archi - dalla fine delle due 'sottoreti' alla transizione comune di fine regione parallela al place di fine regione parallela
+        petri_utils.add_arc_from_to(p_end1, t_end, net)
+        petri_utils.add_arc_from_to(p_end2, t_end, net)
         petri_utils.add_arc_from_to(t_end, p_end, net)
 
         return [parent_place, p_end, region_counter]
@@ -176,7 +176,7 @@ if __name__ == "__main__":
     current_string = SEED_STRING
     probabilities = 0.34,0.33,0.33 #xor, parallel, seq
 
-    iterations = 3 #Quante task diverse
+    iterations = 5 #Quante task diverse
     for _ in range(iterations):
         current_string = replace_random_underscore(current_string, probabilities)
 
