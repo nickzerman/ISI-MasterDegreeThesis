@@ -1,5 +1,7 @@
 from datetime import datetime
 import pandas as pd
+import itertools
+
 from pm4py.objects.petri_net.utils.petri_utils import remove_place, get_transition_by_name
 
 from random_diagram_generation import SEED_STRING, replace_random_underscore, replace_underscores
@@ -14,6 +16,30 @@ from pm4py.objects.log.exporter.xes import exporter as xes_exporter
 from pm4py.algo import simulation
 
 def createSubnet(net, tree, parent_place, region_counter):
+    """
+        Create a petri net recursively
+
+        Parameters
+        ----------
+        net
+            Petri net
+        tree
+            BPMN converted
+        parent_place
+            root
+        region_counter
+            Keeps the counter for the regions of the Petri Net
+
+        Returns
+        ----------
+        [p_start, p_end, region_counter]
+        p_start
+            Starting place
+        p_end
+            Ending place
+        region_counter
+            Keeps the counter for the regions of the Petri Net
+    """
     type = tree.data
 
     if type == "task":
@@ -83,7 +109,6 @@ def createSubnet(net, tree, parent_place, region_counter):
 
         # Prima 'sottorete' collegata al place di inizio regione
         subnet1 = createSubnet(net, tree.children[0], p_start, region_counter)
-        p_end1 = subnet1[1]
         region_counter = subnet1[2]
 
         # Rimuovo l'ultimo place della sottorete perchè poi andrò a collegare la transition al place di regione intermedia
@@ -93,7 +118,6 @@ def createSubnet(net, tree, parent_place, region_counter):
 
         # Secondo 'sottorete' collegata al place di inizio regione
         subnet2 = createSubnet(net, tree.children[1], p_start, region_counter)
-        p_end2 = subnet2[1]
         region_counter = subnet2[2]
 
         # Rimuovo l'ultimo place della sottorete perchè poi andrò a collegare la transition al place di regione intermedia
@@ -142,7 +166,70 @@ def createSubnet(net, tree, parent_place, region_counter):
 
         return [parent_place, p_end, region_counter]
 
-def visitePetriNet(transitions):
+def createClause(tree, open_clauses, end_clauses, region_counter):
+    """
+        Create open and close clause of tree's nodes
+
+        Parameters
+        ----------
+        tree
+            BPMN converted
+        open_clauses
+            dict --> key: node, value: list of clauses
+        end_clauses
+            dict --> key: node, value: list of clauses
+        region_counter
+            Keeps the counter for the regions of the Petri Net
+        Returns
+        ----------
+        [open_clauses, end_clauses, region_counter]
+        open_clauses
+            dict --> key: node, value: list of clauses (tuple)
+        end_clauses
+            dict --> key: node, value: list of clauses
+        name
+            name of the sub task/region
+        region_counter
+            Keeps the counter for the regions of the Petri Net
+    """
+    type = tree.data
+
+    if type == "task":
+        task = tree.children[0].value  # Prendo il nome della task in per esempio: [Tree('task', [Token('NAME', 'T1')])
+        start = "start_" + task
+        end = "end_" + task
+        open_clauses[task] = {(start,)} #Tuple
+        end_clauses[task] = {(end,)}
+
+        #Lo start è l'inizio della task, mentre l'end è la fine della task
+        return [open_clauses, end_clauses, task, region_counter]
+
+    # Inizializzo la nuova regione sequenziale
+    region = "R" + str(region_counter)
+
+    # Aggiorno il region_counter come nella funzione del createSubnet e chiamo ricorsivamente il createClause
+    region_counter += 1
+    open_clauses, end_clauses, nameleft, region_counter = createClause(tree.children[0], open_clauses, end_clauses, region_counter)
+
+    # Stessa cosa per la parte a destra, come clausole passo quelle aggiornate (N.B. in teoria non dovrebbe creare problemi)
+    open_clauses, end_clauses, nameright, region_counter = createClause(tree.children[1], open_clauses, end_clauses, region_counter)
+
+    if type == "sequential":
+        open_clauses[region] = open_clauses[nameleft]
+        end_clauses[region] = end_clauses[nameright]
+
+    elif type == "xor":
+        open_clauses[region] = open_clauses[nameleft] | open_clauses[nameright]
+        end_clauses[region] = end_clauses[nameleft] | end_clauses[nameright]
+
+    elif type == "parallel":
+        open_clauses[region] = open_clauses[nameleft] | open_clauses[nameright]
+        product = itertools.product(end_clauses[nameleft], end_clauses[nameright])
+        end_clauses[region] = {tuple(itertools.chain.from_iterable(p)) for p in product} #
+
+    return open_clauses, end_clauses, region, region_counter
+
+def visitePetriNetTransitions(transitions):
     regions = ["R0"] #Aggiungo R0 di base
     tasks = []
 
@@ -156,6 +243,20 @@ def visitePetriNet(transitions):
             else:
                 if splits[1] not in tasks:
                     tasks.append(splits[1])
+
+    return regions, tasks
+
+def visitePetriNetClauses(clauses):
+    regions = [] #Aggiungo R0 di base
+    tasks = []
+
+    for label in clauses.keys():
+        if label[0] == "R": #Regione
+            if label not in regions:
+                regions.append(label)
+        else:
+            if label not in tasks:
+                tasks.append(label)
 
     return regions, tasks
 
@@ -174,9 +275,9 @@ def getEncoding(log,regions,tasks):
 
 if __name__ == "__main__":
     current_string = SEED_STRING
-    probabilities = 0.34,0.33,0.33 #xor, parallel, seq
+    probabilities = 0.5,0.5,0 #xor, parallel, seq
 
-    iterations = 5 #Quante task diverse
+    iterations = 4 #Quante task diverse
     for _ in range(iterations):
         current_string = replace_random_underscore(current_string, probabilities)
 
@@ -191,6 +292,9 @@ if __name__ == "__main__":
     root = petri_utils.add_place(net, "root")
     region_counter = 0
     netValue = createSubnet(net, tree, root, region_counter) #Avvio il processo per creare la Petri Net
+    open_clauses, end_clauses, _, _ = createClause(tree, {}, {}, region_counter)
+    #print(open_clauses)
+    #print(end_clauses)
 
     initial_marking[netValue[0]] = 1
     final_marking[netValue[1]] = 1
@@ -207,7 +311,8 @@ if __name__ == "__main__":
     )
 
     #Mi prendo tutte le varie regioni e tutte le task in modo tale da poter lavorare sulle tracce come preferisco
-    regions, tasks = visitePetriNet(net.transitions)
+    #regions, tasks = visitePetriNetTransitions(net.transitions)
+    regions, tasks = visitePetriNetClauses(open_clauses)
     #print("regions:", regions)
     #print("tasks:", tasks)
 
