@@ -158,9 +158,11 @@ def createSubnet(net, tree, parent_place, counter):
 
         return [parent_place, p_end, counter]
 
-def createClause(tree, open_clauses, end_clauses, region_counter):
+def createClause(tree, open_clauses, end_clauses, node_identity, node_children, region_counter):
     """
         Create open and close clause of tree's nodes
+        Create x,+,-> matrix
+        Create children region matrix
 
         Parameters
         ----------
@@ -170,6 +172,10 @@ def createClause(tree, open_clauses, end_clauses, region_counter):
             dict --> key: node, value: list of clauses
         end_clauses
             dict --> key: node, value: list of clauses
+        node_identity
+            dict --> key: node, value: list [x,+,->] where we have 1 if the region is that type
+        node_children
+            dict --> key: node, value: list of nodes
         region_counter
             Keeps the counter for the regions of the Petri Net
         Returns
@@ -181,6 +187,10 @@ def createClause(tree, open_clauses, end_clauses, region_counter):
             dict --> key: node, value: list of clauses
         name
             name of the sub task/region
+        node_identity
+            dict --> key: node, value: list [x,+,->] where we have 1 if the region is that type
+        node_children
+            dict --> key: node, value: list of nodes
         region_counter
             Keeps the counter for the regions of the Petri Net
     """
@@ -193,23 +203,29 @@ def createClause(tree, open_clauses, end_clauses, region_counter):
         end_clauses[task] = [{end}]
 
         #Lo start è l'inizio della task, mentre l'end è la fine della task
-        return [open_clauses, end_clauses, task, region_counter]
+        return [open_clauses, end_clauses, task, node_identity, node_children, region_counter]
 
-    # Inizializzo la nuova regione sequenziale
+    # Inizializzo la nuova regione
     region = "R" + str(region_counter)
 
     # Aggiorno il region_counter come nella funzione del createSubnet e chiamo ricorsivamente il createClause
     region_counter += 1
     children = [] #Tengo traccia dei figli, in questo modo facilmente creo open_clauses ed end_clauses
     for child in tree.children:
-        open_clauses, end_clauses, name, region_counter = createClause(child, open_clauses, end_clauses, region_counter)
+        open_clauses, end_clauses, name, node_identity, node_children, region_counter = createClause(child, open_clauses, end_clauses, node_identity, node_children, region_counter)
         children.append(name)
 
+    node_children[region] = children #Per ogni regione, ho la lista solamente dei figli
+
     if tree.data == "sequential":
+        node_identity[region] = [0,0,1] #Identificazione del tipo di regione
+
         open_clauses[region] = open_clauses[children[0]] #Prendo solo il primo figlio, che aprirà la regione sequenziale
         end_clauses[region] = end_clauses[children[-1]] #Prendo solo l'ultimo figlio, che chiuderà la regione sequenziale
 
     elif tree.data == "xor":
+        node_identity[region] = [1,0,0] #Identificazione del tipo di regione
+
         #Per ogni figlio, le sue clauses open e di end valgono per lo xor
         open_clauses_current = []
         end_clauses_current = []
@@ -220,6 +236,8 @@ def createClause(tree, open_clauses, end_clauses, region_counter):
         end_clauses[region] = end_clauses_current
 
     elif tree.data == "parallel":
+        node_identity[region] = [0,1,0] #Identificazione del tipo di regione
+
         #Per ogni figlio, le sue clauses open valgono per il parallelo
         open_clauses_current = []
         for child in children:
@@ -235,7 +253,7 @@ def createClause(tree, open_clauses, end_clauses, region_counter):
             for combination in itertools.product(*all_children_end_clauses)
         ]
 
-    return open_clauses, end_clauses, region, region_counter
+    return open_clauses, end_clauses, region, node_identity, node_children, region_counter
 
 def visitePetriNetClauses(clauses):
     """
@@ -444,6 +462,39 @@ if __name__ == "__main__":
     process = replace_underscores(current_string)
     tree = PARSER.parse(process)
 
+    #ALBERO GIOCATTOLO
+    tree = Tree('xor', [
+        # 1. Primo figlio di XOR (T1)
+        Tree('task', [Token('NAME', 'T1')]),
+
+        # 2. Secondo figlio di XOR (Blocco Sequential)
+        Tree('sequential', [
+
+            # 2.1 Primo figlio di Sequential (Parallel)
+            Tree('parallel', [
+                # 2.1.1 Ramo sinistro del Parallel (Xor annidati)
+                Tree('xor', [
+                    Tree('task', [Token('NAME', 'T2')]),
+                    Tree('xor', [
+                        Tree('task', [Token('NAME', 'T3')]),
+                        Tree('task', [Token('NAME', 'T4')])
+                    ])
+                ]),
+                # 2.1.2 Ramo destro del Parallel (Parallel T5, T6)
+                Tree('parallel', [
+                    Tree('task', [Token('NAME', 'T5')]),
+                    Tree('task', [Token('NAME', 'T6')])
+                ])
+            ]),
+
+            # 2.2 Secondo figlio di Sequential (Sequential T7, T8)
+            Tree('sequential', [
+                Tree('task', [Token('NAME', 'T7')]),
+                Tree('task', [Token('NAME', 'T8')])
+            ])
+        ])
+    ])
+
     if NARY:
         tree = createNAryTree(tree)
 
@@ -454,12 +505,6 @@ if __name__ == "__main__":
     root = petri_utils.add_place(net, "root")
 
     netValue = createSubnet(net, tree, root, 0)  # Avvio il processo per creare la Petri Net
-
-    open_clauses, end_clauses, _, _ = createClause(tree, {}, {}, 0)
-    print(open_clauses)
-    print(end_clauses)
-    print()
-
     initial_marking[netValue[0]] = 1
     final_marking[netValue[1]] = 1
 
@@ -478,6 +523,14 @@ if __name__ == "__main__":
     for i in range(3):
         generated_traces.append(generateTrace(net, initial_marking, final_marking, ["P", "X"]))
 
+    #Creo le clauses e tutte le matrici, sia per aiutarmi nell'encoding sia per le identificazioni delle regioni
+    open_clauses, end_clauses, _, node_identity, node_children, _ = createClause(tree, {}, {}, {}, {}, 0)
+
+    #Creazione matrice identità delle regioni
+    df_region_identity = pd.DataFrame.from_dict(node_identity, orient='index').sort_index()
+    df_region_identity.columns = ['X', '+', '->']
+    print(df_region_identity)
+
     #Mi prendo tutte le varie regioni e tutte le task in modo tale da poter lavorare sulle tracce come preferisco
     regions, tasks = visitePetriNetClauses(open_clauses)
     open_clauses=filterClauses(open_clauses)
@@ -485,6 +538,15 @@ if __name__ == "__main__":
 
     regions.sort()
     tasks.sort()
+
+    #Creazione matrice regioni-figli per le regioni
+    df_region_children = pd.Series(node_children).explode()
+    df_region_children = pd.crosstab(df_region_children.index, df_region_children)
+    df_region_children = df_region_children.reindex(index=regions, columns=regions + tasks, fill_value=0)
+    df_region_children = df_region_children.astype(int)
+    df_region_children.index.name = None
+    df_region_children.columns.name = None
+    print(df_region_children)
 
     traceEncoded_regions, traceEncoded_tasks = getEncoding(generated_traces, regions, tasks, open_clauses,end_clauses)
 
