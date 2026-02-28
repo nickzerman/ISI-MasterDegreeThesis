@@ -2,7 +2,7 @@ from lark import Lark, Tree, Token
 import pydot
 from PIL import Image
 
-exec(open("utils.py").read())
+exec(open("core/library_process_generation/generation_helpers.py").read())
 
 
 PROCESS_GRAMMAR = r"""
@@ -115,7 +115,7 @@ def print_tree(dot_code, outfile="out.png"):
     return Image.open(outfile)
 
 PATH_IMAGE_BPMN_LARK = 'd.png'
-PATH_IMAGE_BPMN_LARK_SVG ='bpmn.svg'
+PATH_IMAGE_BPMN_LARK_SVG = 'bpmn.svg'
 PATH_AUTOMATON = 'automaton.dot'
 PATH_AUTOMATON_CLEANED = 'automaton_cleaned.dot'
 PATH_AUTOMATON_IMAGE = 'automaton.png'
