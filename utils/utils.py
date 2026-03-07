@@ -1,3 +1,4 @@
+import torch
 from lark import Tree
 import itertools
 import pandas as pd
@@ -114,3 +115,36 @@ def getEncoding(traces, regions, tasks, open_clauses, end_clauses):
     df_tasks = pd.DataFrame(traceEncoded_tasks).T
 
     return df_regions, df_tasks
+
+
+def cutTraces(df_regions, df_tasks):
+    # Combino i due dataframe uno sotto l'altro, in modo da avere la colonna completa
+    df_combined = pd.concat([df_regions, df_tasks], axis=0)
+
+    divided_traces = []
+    current = []
+
+    for col in df_combined.columns:
+        if (df_combined[col] == 0).all(): #Se arrivo in un punto in cui la colonna è tutta zero, significa che ho una nuova traccia, resetto current e salvo la traccia iterata fino ad ora
+            if current:
+                divided_traces.append(df_combined[current])
+                current = []
+        else:
+            current.append(col)
+
+    return divided_traces
+
+def create_training_set(df_traces, block_size):
+    X, Y = [], []
+    for trace in df_traces:
+        data = torch.tensor(trace.values.T, dtype=torch.float32) #Tolgo numero colonne e numero regioni, creando il tensor
+
+        padding = torch.zeros((block_size,data.shape[1]))
+        padding_final = torch.zeros((1,data.shape[1]))
+        extended_trace = torch.cat((padding, data, padding_final), dim=0)
+
+        for i in range(block_size, len(extended_trace)):
+            X.append(extended_trace[i-block_size : i])
+            Y.append(extended_trace[i])
+
+    return torch.stack(X), torch.stack(Y)
