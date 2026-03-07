@@ -1,5 +1,6 @@
 import torch
-
+import numpy as np
+from sklearn.metrics import precision_score, recall_score, f1_score
 from core import *
 from utils import *
 from lark import Tree, Token
@@ -181,32 +182,6 @@ def main():
 
         # E. OPTIMIZER STEP: Aggiorniamo i pesi per sbagliare meno al prossimo giro
         optimizer.step()
-
-    print("\n--- TEST DI GENERAZIONE CON SEED REALE ---")
-    model.eval()
-    with torch.no_grad():
-        # Prendi i primi 8 step della prima traccia di validazione
-        # context shape: (1, 8, num_bits)
-        context = val_data_X[0:1].to(device)
-
-        print("Inizio traccia reale fornito al modello...")
-
-        generated_steps = []
-        for _ in range(15):
-            cond_context = context[:, -block_size:, :]
-            logits, _ = model(cond_context)
-            probs = torch.sigmoid(logits)
-
-            # PROVA QUESTO: Invece di > 0.5, guarda i valori grezzi delle probabilità
-            # se sono tutti 0.99, c'è un problema di scala nella loss
-            next_step = (probs > 0.5).float()
-
-            context = torch.cat((context, next_step.unsqueeze(1)), dim=1)
-            generated_steps.append(next_step.cpu().squeeze().numpy())
-
-        # Stampa
-        for i, step in enumerate(generated_steps):
-            print(f"Step {i + 1} previsto: {step.astype(int)}")
 
 if __name__ == '__main__':
     main()
