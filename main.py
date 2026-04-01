@@ -6,6 +6,11 @@ from utils import *
 from lark import Tree, Token
 from pm4py import save_vis_petri_net
 import pandas as pd
+import sys
+#print(f"Versione Python: {sys.version}")
+
+#print(torch.cuda.is_available())
+#print(torch.__version__)
 
 # SETTINGS
 NARY = 1
@@ -15,10 +20,10 @@ FILE_PATH_PNG = "petri_net_output.png"
 TRACE_ENC_REG = "data/regions_full.csv"
 TRACE_ENC_TAS = "data/tasks_full.csv"
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-learning_rate = 1e-4
+learning_rate = 3e-4
 
 
-def get_batch(split, train_data_X, train_data_Y, val_data_X, val_data_Y, batch_size, device):
+'''def get_batch(split, train_data_X, train_data_Y, val_data_X, val_data_Y, batch_size, device):
     # Seleziona i dati corretti
     X_data = train_data_X if split == 'train' else val_data_X
     Y_data = train_data_Y if split == 'train' else val_data_Y
@@ -30,11 +35,24 @@ def get_batch(split, train_data_X, train_data_Y, val_data_X, val_data_Y, batch_s
     x = X_data[ix].to(device)
     y = Y_data[ix].to(device)
 
+    return x, y'''
+
+def get_batch(split, train_data, val_data, batch_size, block_size, device):
+    # Seleziona i dati corretti
+    data = train_data if split == 'train' else val_data
+
+    # Genera indici casuali
+    ix = torch.randint(len(data) - block_size, (batch_size,))
+
+    x = torch.stack([data[i:i+block_size] for i in ix])
+    y = torch.stack([data[i+1:i+block_size+1] for i in ix])
+
+    x,y = x.to(device), y.to(device)
     return x, y
 
 
 @torch.no_grad()
-def estimate_loss(model, eval_iters, train_data_X, train_data_Y, val_data_X, val_data_Y, batch_size, device):
+def estimate_loss(model, eval_iters, train_data, val_data, batch_size, block_size, device):
     out = {}
     model.eval()
 
@@ -42,8 +60,8 @@ def estimate_loss(model, eval_iters, train_data_X, train_data_Y, val_data_X, val
         losses = torch.zeros(eval_iters)
         for k in range(eval_iters):
             # Richiama get_batch passando i parametri ricevuti
-            X, Y = get_batch(split, train_data_X, train_data_Y, val_data_X, val_data_Y, batch_size, device)
-            _, loss = model(X, Y)
+            X, Y = get_batch(split, train_data, val_data, batch_size, block_size, device)
+            logits, loss = model(X, Y)
             losses[k] = loss.item()
         out[split] = losses.mean()
 
@@ -131,17 +149,44 @@ def main():
     traceEncoded_regions.to_csv(TRACE_ENC_REG, index=True)
     traceEncoded_tasks.to_csv(TRACE_ENC_TAS, index=True)
 
-    traces = cutTraces(traceEncoded_regions, traceEncoded_tasks)
+    df_traces = pd.concat([traceEncoded_regions, traceEncoded_tasks], axis=0)
+    print(df_traces)
+
+    df_traces = df_traces.T
+
+    df_tracescopy = df_traces.copy()
+
+    unique_columns = df_traces.drop_duplicates()
+    unique_tuple = [tuple(x) for x in unique_columns.values]
+
+    # 2. Creiamo i dizionari di mappatura
+    # bit_to_id: trasforma la colonna di 12 bit in un numero
+    # id_to_bit: trasforma il numero nei 12 bit originali (per la generazione)
+    bit_to_id = {v: i for i, v in enumerate(unique_tuple)}
+    id_to_bit = {i: v for i, v in enumerate(unique_tuple)}
+
+    vocab_size = len(unique_columns)
+
+    encode = lambda a: [bit_to_id[tuple(x)] for x in a]
+    decode = lambda b: [id_to_bit[tuple(x)] for x in b]
+
+    data = torch.tensor(encode(df_traces.values), dtype=torch.long)
+
+    #traces = cutTraces(traceEncoded_regions, traceEncoded_tasks)
 
     block_size = 8
-    n_embd = 64
+    n_embd = 128
     dropout = 0.2
-    n_head = 4 #Bisogna implementare la multihead attention in caso (basta copiare il codice)
-    n_layer = 3
+    n_head = 4
+    n_layer = 4
+    batch_size = 32
+    eval_iters = 200
+    eval_interval = 500
+    max_iters = 5000
 
-    X, Y = create_training_set(traces,8)
+    #X, Y = create_training_set(traces,8)
 
-    model = BPMNTransformer(num_regions+num_tasks, block_size, n_embd, dropout, n_head, n_layer)
+    model = BPMNTransformer(vocab_size, num_regions+num_tasks, block_size, n_embd, dropout, n_head, n_layer)
     m = model.to(device)
 
     print(sum(p.numel() for p in m.parameters()) / 1e6, 'M parameters')
@@ -149,27 +194,28 @@ def main():
     # create a PyTorch optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
-    n = int(0.8 * len(X))
+    n = int(0.8 * len(df_traces))
+    
+    train_data = data[:n]
+    val_data = data[n:]
 
-    train_data_X = X[:n]
-    train_data_Y = Y[:n]
-    val_data_X = X[n:]
-    val_data_Y = Y[n:]
+    #train_data_X = X[:n]
+    #train_data_Y = Y[:n]
+    #val_data_X = X[n:]
+    #val_data_Y = Y[n:]
 
-    batch_size = 32
-    eval_iters = 200
-    eval_interval = 300
-    max_iters = 2000
+    '''xb, yb = get_batch('train', train_data, val_data, batch_size, block_size, device)
+    print(xb)
+    print(yb)'''
 
     # Dentro il ciclo for iter in range(max_iters):
     for iter in range(max_iters):
-        if iter % eval_interval == 0:
-            losses = estimate_loss(model, eval_iters, train_data_X, train_data_Y, val_data_X, val_data_Y, batch_size,
-                                   device)
-            print(f"Step {iter}: Train Loss {losses['train']:.4f} | Val Loss {losses['val']:.4f}")
+        if iter % eval_interval == 0 or iter == max_iters - 1:
+            losses = estimate_loss(model, eval_iters, train_data, val_data, batch_size, block_size, device)
+            print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
 
         # A. Pesca i dati (usando la funzione esterna)
-        xb, yb = get_batch('train', train_data_X, train_data_Y, val_data_X, val_data_Y, batch_size, device)
+        xb, yb = get_batch('train', train_data, val_data, batch_size, block_size, device)
 
         # B. FORWARD PASS: Il modello "gira" e produce una previsione
         logits, loss = model(xb, yb)

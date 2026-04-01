@@ -116,7 +116,6 @@ def getEncoding(traces, regions, tasks, open_clauses, end_clauses):
 
     return df_regions, df_tasks
 
-
 def cutTraces(df_regions, df_tasks):
     # Combino i due dataframe uno sotto l'altro, in modo da avere la colonna completa
     df_combined = pd.concat([df_regions, df_tasks], axis=0)
