@@ -116,10 +116,6 @@ def main():
 
     tree = Tree('xor', [Tree('loop', [Tree('sequential', [Tree('loop', [Tree('task', [Token('NAME', 'T1')])]), Tree('xor', [Tree('task', [Token('NAME', 'T2')]), Tree('task', [Token('NAME', 'T3')])])])]), Tree('parallel', [Tree('task', [Token('NAME', 'T4')]), Tree('loop', [Tree('task', [Token('NAME', 'T5')])])])])
 
-    # sei arrivato qui nicolò
-    # hai il tuo albero giocattolo coi loop in teoria
-    # adesso devi fixare quello che ci sarà sbagliato nell'encoding e in teoria ci sei
-
     if NARY:
         tree = createNAryTree(tree)
 
