@@ -19,7 +19,7 @@ PROCESS_GRAMMAR = r"""
     | sequential "," region -> sequential
 
 ?region: 
-     | NAME   -> task
+     | NAME  -> task
      | "(" xor ")"
 
 %import common.CNAME -> NAME
@@ -29,7 +29,37 @@ PROCESS_GRAMMAR = r"""
 %ignore WS_INLINE
 """
 
-PARSER = Lark(PROCESS_GRAMMAR, parser='lalr')
+# Added new grammar for loop
+PROCESS_GRAMMAR_LOOP = r"""
+?start: expr
+
+?expr: loop
+
+?loop: xor
+     | "->" "(" expr ")" -> loop
+
+?xor: parallel
+    | xor "^" parallel -> xor
+    | xor "^" "[" NAME "]" parallel -> xor_probability
+
+?parallel: sequential
+    | parallel "||" sequential -> parallel
+
+?sequential: region
+    | sequential "," region -> sequential
+
+?region: 
+     | NAME  -> task
+     | "(" expr ")"
+
+%import common.CNAME -> NAME
+%import common.NUMBER
+%import common.WS_INLINE
+
+%ignore WS_INLINE
+"""
+
+PARSER = Lark(PROCESS_GRAMMAR_LOOP, parser='lalr')
 
 def get_tasks(t):
     return {subtree.children[0].value for subtree in t.iter_subtrees() if subtree.data == 'task'}

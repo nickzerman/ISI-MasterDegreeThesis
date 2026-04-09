@@ -24,8 +24,9 @@ def createNAryTree(tree):
     children_processed = [createNAryTree(child) for child in tree.children] #Processo ogni figlio del nodo (saranno al massimo due visto che l'albero in input è nario)
 
     children = []
-    for child in children_processed: #Ciclo i figli processati
-        if child.data == tree.data: #Se il tipo di nodo è lo stesso elimino il nodo e copio i figli
+    for i,child in enumerate(children_processed): #Ciclo i figli processati
+        #if child.data == tree.data and not(child.data=="loop" and i!=0): #Se il tipo di nodo è lo stesso elimino il nodo e copio i figli
+        if child.data == tree.data:
             children.extend(child.children)
         else: #Altrimenti copio tutto il sottoalbero col tipo di nodo diverso
             children.append(child)
@@ -85,6 +86,8 @@ def getEncoding(traces, regions, tasks, open_clauses, end_clauses):
     1 --> if task/region starts or is executed in current step
     0 --> if task/region ends or is not executed in current step
 
+    end_L cases will modify only the loop region's bit of the previous column
+
     Parameters
     ----------
     traces
@@ -110,12 +113,17 @@ def getEncoding(traces, regions, tasks, open_clauses, end_clauses):
     traceEncoded_regions = {r: [] for r in regions}
     traceEncoded_tasks = {t: [] for t in tasks}
 
+    loop_ends_counter = 0 # Per capire quanto indietro andare ogni volta rispetto allo step attuale (cioè quante colonne abbiamo effettivamente saltato)
+    trace_step_counter = 0
+
     for trace in traces:
         first_step = True
-        ended_tasks = []
+        ended_tasks = [] # Inseriamo anche gli end loop
 
-        for step in trace:
-            regions_step = regions.copy() #Per tenere 'traccia' (brutto gioco di parole) delle ragioni che finiscono o iniziano nello step corrente
+        for i, step in enumerate(trace):
+            skip = False
+            #regions_step = regions.copy() #Per tenere 'traccia' (brutto gioco di parole) delle ragioni che finiscono o iniziano nello step corrente
+            regions_step = set(regions)
 
             current_task = step.split("_")[1] #Prendo la current_task per aiutarmi nel traceEncoded_tasks
 
@@ -127,36 +135,54 @@ def getEncoding(traces, regions, tasks, open_clauses, end_clauses):
                         traceEncoded_regions[key].append(1)
             else:
                 ended_tasks.append(step)
-                traceEncoded_tasks[current_task].append(0) #Se task finisce  allo step corrente, il suo valore nella matrice diventa 0 (prima e precedente era 1)
+                ended_tasks_set = set(ended_tasks)
 
-                #Genero tutte le combinazioni possibili di task finite per controllare se alcuni regioni finiscono allo step corrente (potrei avere una combinazione di end di task)
-                combinations = [
+                # Genero tutte le combinazioni possibili di task finite per controllare se alcuni regioni finiscono allo step corrente (potrei avere una combinazione di end di task)
+                '''combinations = [
                     set(c)
                     for i in range(2, len(ended_tasks) + 1)
                     for c in itertools.combinations(ended_tasks, i)
                 ]
-                combinations.append({step}) #Aggiungo la singola end task dello step corrente (potrebbe chiudere da sola una o più regioni)
+                combinations.append({step})'''  # Aggiungo la singola end task dello step corrente (potrebbe chiudere da sola una o più regioni)
 
-                for key, clauses in end_clauses.items(): #Se una delle combinazioni appartiene all'end_clauses di una regione, il valore codificato della matrice torna 0
-                    for c in combinations:
-                        if c in clauses:
-                            regions_step.remove(key)
-                            traceEncoded_regions[key].append(0)
-                            break
+                if step.startswith("end_L"):  # Se è un end loop aggiorno il bit del loop region di prima --> da 1 metto 0
+                    loop_ends_counter += 1
+                    region = "R" + step.split("end_L")[1]
+                    traceEncoded_regions[region][trace_step_counter + i - loop_ends_counter] = 0
+                    skip = True
 
-            for region in regions_step: #Sistemo le regioni non considerate fino ad ora dallo step corrente (0 se siamo al primo step, altrimenti prendiamo il valore precedente --> se una regione è iniziata allo step precedente e non è finita, il valore deve rimanere 1)
-                if first_step:
-                    traceEncoded_regions[region].append(0)
+                    for key, clauses in end_clauses.items(): #Guardo se il loop ha causato chiusure al tempo precedente
+                        for clause in clauses:  # Clause è un set, es: {'end_T1', 'end_T2'}
+                            if step in clause and clause.issubset(ended_tasks_set): # Se lo step corrente fa parte della clausola E tutti gli elementi della clausola sono nei task finiti
+                                traceEncoded_regions[key][trace_step_counter + i - loop_ends_counter] = 0
+                                break
+
                 else:
-                    traceEncoded_regions[region].append(traceEncoded_regions[region][-1])
+                    traceEncoded_tasks[current_task].append(0) #Se task finisce  allo step corrente, il suo valore nella matrice diventa 0 (prima e precedente era 1)
 
-            for task in tasks: #Stessa cosa delle regioni, fatta per i task
-                if first_step and task!=current_task:
-                    traceEncoded_tasks[task].append(0)
-                elif task!=current_task:
-                    traceEncoded_tasks[task].append(traceEncoded_tasks[task][-1])
+                    for key, clauses in end_clauses.items(): #Se una delle combinazioni appartiene all'end_clauses di una regione, il valore codificato della matrice torna 0
+                        for clause in clauses:  # Clause è un set, es: {'end_T1', 'end_T2'}
+                            if step in clause and clause.issubset(ended_tasks_set):  # Se lo step corrente fa parte della clausola E tutti gli elementi della clausola sono nei task finiti
+                                regions_step.remove(key)
+                                traceEncoded_regions[key].append(0)
+                                break
+
+            if not skip:
+                for region in regions_step: #Sistemo le regioni non considerate fino ad ora dallo step corrente (0 se siamo al primo step, altrimenti prendiamo il valore precedente --> se una regione è iniziata allo step precedente e non è finita, il valore deve rimanere 1)
+                    if first_step:
+                        traceEncoded_regions[region].append(0)
+                    else:
+                        traceEncoded_regions[region].append(traceEncoded_regions[region][-1])
+
+                for task in tasks: #Stessa cosa delle regioni, fatta per i task
+                    if first_step and task!=current_task:
+                        traceEncoded_tasks[task].append(0)
+                    elif task!=current_task:
+                        traceEncoded_tasks[task].append(traceEncoded_tasks[task][-1])
 
             first_step = False
+
+        trace_step_counter += len(trace)
 
     #Creo i due dataframe codificati delle regioni e delle task
     df_regions = pd.DataFrame(traceEncoded_regions).T

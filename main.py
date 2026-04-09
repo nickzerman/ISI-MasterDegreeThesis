@@ -14,8 +14,7 @@ import sys
 
 # SETTINGS
 NARY = 1
-CURRENT_STRING = SEED_STRING
-PROBABILITIES = 0.34, 0.33, 0.33
+PROBABILITIES = 0.25,0.25,0.25,0.25
 FILE_PATH_PNG = "petri_net_output.png"
 TRACE_ENC_REG = "data/regions_full.csv"
 TRACE_ENC_TAS = "data/tasks_full.csv"
@@ -70,12 +69,16 @@ def estimate_loss(model, eval_iters, train_data, val_data, batch_size, block_siz
 
 def main():
     iterations = 7  # Quante task diverse
+    current_string = SEED_STRING
     for _ in range(iterations):
-        current_string = replace_random_underscore(CURRENT_STRING, PROBABILITIES)
+        current_string = replace_random_underscore(current_string, PROBABILITIES)
+
+    #print(current_string)
 
     process = replace_underscores(current_string)
     tree = PARSER.parse(process)
 
+    '''
     # ALBERO GIOCATTOLO
     # Da rimuovere
     tree = Tree('xor', [
@@ -109,9 +112,19 @@ def main():
             ])
         ])
     ])
+    '''
+
+    tree = Tree('xor', [Tree('loop', [Tree('sequential', [Tree('loop', [Tree('task', [Token('NAME', 'T1')])]), Tree('xor', [Tree('task', [Token('NAME', 'T2')]), Tree('task', [Token('NAME', 'T3')])])])]), Tree('parallel', [Tree('task', [Token('NAME', 'T4')]), Tree('loop', [Tree('task', [Token('NAME', 'T5')])])])])
+
+    # sei arrivato qui nicolò
+    # hai il tuo albero giocattolo coi loop in teoria
+    # adesso devi fixare quello che ci sarà sbagliato nell'encoding e in teoria ci sei
 
     if NARY:
         tree = createNAryTree(tree)
+
+    #print(tree)
+
 
     # Oggetto PetriNetP - si inizializza automaticamente con il suo costruttore
     net = PetriNetP(tree)
@@ -124,13 +137,18 @@ def main():
         format="png"  # Specifica il formato
     )
 
+    #print(net.open_clauses)
+    #print(net.end_clauses)
+
     # Oggetto Generator
-    generator = Generator(300, net)
+    generator = Generator(5, net)
+    for i in generator.generatedTraces:
+        print(i)
 
     # Creazione matrice identità delle regioni
     df_region_identity = pd.DataFrame.from_dict(net.node_identity, orient='index').sort_index()
-    df_region_identity.columns = ['X', '+', '->']
-    print(df_region_identity)
+    df_region_identity.columns = ['X', '+', '->', '<>']
+    #print(df_region_identity)
 
     # Creazione matrice regioni-figli per le regioni
     df_region_children = pd.Series(net.node_children).explode()
@@ -139,7 +157,7 @@ def main():
     df_region_children = df_region_children.astype(int)
     df_region_children.index.name = None
     df_region_children.columns.name = None
-    print(df_region_children)
+    #print(df_region_children)
 
     traceEncoded_regions, traceEncoded_tasks = getEncoding(generator.generatedTraces, net.regions, net.tasks, net.open_clauses, net.end_clauses)
 
@@ -151,6 +169,8 @@ def main():
 
     df_traces = pd.concat([traceEncoded_regions, traceEncoded_tasks], axis=0)
     print(df_traces)
+
+    '''
 
     df_traces = df_traces.T
 
@@ -203,11 +223,13 @@ def main():
     #train_data_Y = Y[:n]
     #val_data_X = X[n:]
     #val_data_Y = Y[n:]
+    '''
 
     '''xb, yb = get_batch('train', train_data, val_data, batch_size, block_size, device)
     print(xb)
     print(yb)'''
 
+    '''
     # Dentro il ciclo for iter in range(max_iters):
     for iter in range(max_iters):
         if iter % eval_interval == 0 or iter == max_iters - 1:
@@ -228,6 +250,7 @@ def main():
 
         # E. OPTIMIZER STEP: Aggiorniamo i pesi per sbagliare meno al prossimo giro
         optimizer.step()
+    '''
 
 if __name__ == '__main__':
     main()

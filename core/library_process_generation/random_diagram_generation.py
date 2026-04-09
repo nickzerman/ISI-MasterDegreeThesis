@@ -33,8 +33,8 @@ def guess_three_numbers():
     return x, y, z
 
 def weighted_choice(choices, probabilities):
-    if len(choices) != 3 or len(probabilities) != 3:
-        raise ValueError("Must provide exactly 3 choices and 3 probabilities")
+    if len(choices) != 4 or len(probabilities) != 4: #4 different prob
+        raise ValueError("Must provide exactly 4 choices and 4 probabilities (xor, parallel, sequential, loop)")
     
     if not abs(sum(probabilities) - 1.0) < 1e-6:
         raise ValueError("Probabilities must sum to 1")
@@ -45,11 +45,13 @@ def weighted_choice(choices, probabilities):
         return choices[0]
     elif r < probabilities[0] + probabilities[1]:
         return choices[1]
-    else:
+    elif r < probabilities[0] + probabilities[1] + probabilities[2]: #added loop's probability
         return choices[2]
+    else:
+        return choices[3]
 
 def replace_random_underscore(input_string, probabilities= None):
-    replacements = ["(_ ^ _)", "(_ || _)", "(_ , _)"]
+    replacements = ["(_ ^ _)", "(_ || _)", "(_ , _)", "(->(_))"] #added loop (->(_))
     
     # Find all underscore positions
     underscore_positions = [i for i, char in enumerate(input_string) if char == '_']

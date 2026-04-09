@@ -86,6 +86,7 @@ class PetriNetP:
 
         if tree.data == 'sequential':
             p_start = parent_place
+            counter += 1
             for child in tree.children:  # Creo la sottorete di ogni figlio e le collego in maniera sequenziale
                 subnet = self.createSubnet(net, child, p_start, counter)
                 p_start = subnet[1]  # La fine della sottorete è l'inizio della sottorete successiva (o comunque l'end del sequenziale che ritornerò)
@@ -155,6 +156,32 @@ class PetriNetP:
 
             return [parent_place, p_end, counter]
 
+        if tree.data == 'loop':
+            start = "start_L" + str(counter)
+            end = "end_L" + str(counter)
+            back = "back_L" + str(counter)
+            t_start = petri_utils.add_transition(net, start, start)
+            t_end = petri_utils.add_transition(net, end, end)
+            t_back = petri_utils.add_transition(net, back, back)
+            p_start = petri_utils.add_place(net, start)
+            p_end = petri_utils.add_place(net, end)
+            counter += 1
+
+            petri_utils.add_arc_from_to(parent_place, t_start, net)
+            petri_utils.add_arc_from_to(t_start, p_start, net)
+
+            subnet = self.createSubnet(net, tree.children[0], p_start, counter) #I loop hanno sempre e solo un figlio (per come è stato pensato)
+            p_end_subnet = subnet[1]  # La fine della sottorete è l'inizio della sottorete successiva (o comunque l'end del sequenziale che ritornerò)
+            counter = subnet[2]  # Aggiorno il counter
+
+            petri_utils.add_arc_from_to(p_end_subnet, t_back, net)
+            petri_utils.add_arc_from_to(t_back, p_start, net)
+            petri_utils.add_arc_from_to(p_end_subnet, t_end, net)
+            petri_utils.add_arc_from_to(t_end, p_end, net)
+
+            return [parent_place, p_end, counter]
+
+
     def createClause(self, tree, open_clauses, end_clauses, node_identity, node_children, region_counter):
         """
             Create open and close clause of tree's nodes
@@ -185,7 +212,7 @@ class PetriNetP:
             name
                 name of the sub task/region
             node_identity
-                dict --> key: node, value: list [x,+,->] where we have 1 if the region is that type
+                dict --> key: node, value: list [x,+,->,<>] where we have 1 if the region is that type
             node_children
                 dict --> key: node, value: list of nodes
             region_counter
@@ -215,13 +242,13 @@ class PetriNetP:
         node_children[region] = children  # Per ogni regione, ho la lista solamente dei figli
 
         if tree.data == "sequential":
-            node_identity[region] = [0, 0, 1]  # Identificazione del tipo di regione
+            node_identity[region] = [0, 0, 1, 0]  # Identificazione del tipo di regione
 
             open_clauses[region] = open_clauses[children[0]]  # Prendo solo il primo figlio, che aprirà la regione sequenziale
             end_clauses[region] = end_clauses[children[-1]]  # Prendo solo l'ultimo figlio, che chiuderà la regione sequenziale
 
         elif tree.data == "xor":
-            node_identity[region] = [1, 0, 0]  # Identificazione del tipo di regione
+            node_identity[region] = [1, 0, 0, 0]  # Identificazione del tipo di regione
 
             # Per ogni figlio, le sue clauses open e di end valgono per lo xor
             open_clauses_current = []
@@ -233,7 +260,7 @@ class PetriNetP:
             end_clauses[region] = end_clauses_current
 
         elif tree.data == "parallel":
-            node_identity[region] = [0, 1, 0]  # Identificazione del tipo di regione
+            node_identity[region] = [0, 1, 0, 0]  # Identificazione del tipo di regione
 
             # Per ogni figlio, le sue clauses open valgono per il parallelo
             open_clauses_current = []
@@ -249,6 +276,13 @@ class PetriNetP:
                 set().union(*combination)
                 for combination in itertools.product(*all_children_end_clauses)
             ]
+
+        elif tree.data == "loop":
+            node_identity[region] = [0, 0, 0, 1]  # Identificazione del tipo di regione
+
+            # Loop ha solo un figlio per definizione
+            open_clauses[region] = open_clauses[children[0]]
+            end_clauses[region] = [{f"end_L{region[1:]}"}]
 
         return open_clauses, end_clauses, region, node_identity, node_children, region_counter
 
