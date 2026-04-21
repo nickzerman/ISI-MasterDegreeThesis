@@ -1,5 +1,5 @@
 from .library_process_generation import replace_underscores, replace_random_underscore, SEED_STRING, PARSER
-from .models import PetriNetP, BPMNTransformer
+from .models import PetriNetP, BPMNTransformer, TimeTransformer
 from .generator import Generator
 
-__all__ = ["replace_underscores", "replace_random_underscore", "SEED_STRING", "PetriNetP", "PARSER", "Generator", "BPMNTransformer"]
+__all__ = ["replace_underscores", "replace_random_underscore", "SEED_STRING", "PetriNetP", "PARSER", "Generator", "BPMNTransformer", "TimeTransformer"]

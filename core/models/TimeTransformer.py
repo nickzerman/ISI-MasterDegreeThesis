@@ -78,7 +78,7 @@ class Block(nn.Module):
         x = x + self.ffwd(self.ln2(x)) # Add & Norm
         return x
 
-class BPMNTransformer(nn.Module):
+class TimeTransformer(nn.Module):
     def __init__(self, vocab_size, num_bits, block_size, n_embd, dropout=0.2, n_head=1, n_layer=1):
         '''
         Args:
@@ -94,10 +94,11 @@ class BPMNTransformer(nn.Module):
 
         #self.token_projection = nn.Linear(num_bits, n_embd)
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
+        self.time_embedding = nn.Linear(1, n_embd)
         self.positional_embedding = nn.Embedding(block_size, n_embd)
         self.blocks = nn.Sequential(*[Block(block_size, n_embd,dropout, n_head=n_head) for _ in range(n_layer)])
         self.ln_f = nn.LayerNorm(n_embd)  # Final layer norm
-        self.lm_head = nn.Linear(n_embd, vocab_size)
+        self.time_head = nn.Linear(n_embd, 1)
 
         self.num_bits = num_bits
 
@@ -111,40 +112,36 @@ class BPMNTransformer(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, targets=None):
-        B, T = idx.shape
+    def forward(self, idx_tasks, idx_times, targets=None):
+        B, T = idx_tasks.size()
 
         # idx and targets are both (B,T) tensor of integers
-        tok_emb = self.token_embedding_table(idx)
+        tok_emb = self.token_embedding_table(idx_tasks)
+        time_emb = self.time_embedding(idx_times)
         pos_emb = self.positional_embedding(torch.arange(T, device=device))  # (T,C)
-        x = tok_emb + pos_emb  # (B,T,C)
+        x = tok_emb + time_emb + pos_emb  # (B,T,C)
         x = self.blocks(x)  # (B,T,C)
         x = self.ln_f(x)  # (B,T,C)
 
-        logits = self.lm_head(x)  # (B,T,vocab_size)
+        time_pred = self.time_head(x)  # (B,T,vocab_size)
+
+        time_pred = F.softplus(time_pred) # Freno a mano per evitare tempi negativi
 
         if targets is None:
             loss = None
         else:
-            B, T, C = logits.shape
-            logits = logits.view(B * T, C)
-            targets = targets.view(B * T)
-            loss = F.cross_entropy(logits, targets)
+            targets = targets.view(B, T, 1).float()
+            loss = F.mse_loss(time_pred, targets)
 
-        return logits, loss
+        return time_pred, loss
 
     @torch.no_grad()
-    def predict_next_task(self, idx, block_size):
-        # Taglia per la finestra temporale
-        idx_cond = idx[:, -block_size:]
+    def predict_next_time(self, idx_tasks, idx_times, block_size):
+        idx_tasks_cond = idx_tasks[:, -block_size:]
+        idx_times_cond = idx_times[:, -block_size:]
 
-        # Chiede al modello le probabilità (prende solo l'ultimo step)
-        logits, _ = self(idx_cond)
-        logits = logits[:, -1, :]
+        time_pred, _ = self(idx_tasks_cond, idx_times_cond)
+        next_time = time_pred[:, -1, :]  # Forma: (Batch, 1)
 
-        # Pesca il token singolo
-        probs = F.softmax(logits, dim=-1)
-        idx_next = torch.multinomial(probs, num_samples=1)  # Forma: (Batch, 1)
-
-        return idx_next  # Ritorna SOLO il prossimo ID
+        return next_time  # Ritorna SOLO il tempo in float
 
