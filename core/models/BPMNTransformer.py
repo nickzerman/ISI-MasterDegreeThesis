@@ -79,10 +79,9 @@ class Block(nn.Module):
         return x
 
 class BPMNTransformer(nn.Module):
-    def __init__(self, vocab_size, num_bits, block_size, n_embd, dropout=0.2, n_head=1, n_layer=1):
+    def __init__(self, vocab_size, block_size, n_embd, dropout=0.2, n_head=1, n_layer=1):
         '''
         Args:
-            num_bits: num_regions + num_tasks
             block_size: sliding window size
             n_embd: number of embeddings
             dropout: dropout rate
@@ -98,8 +97,6 @@ class BPMNTransformer(nn.Module):
         self.blocks = nn.Sequential(*[Block(block_size, n_embd,dropout, n_head=n_head) for _ in range(n_layer)])
         self.ln_f = nn.LayerNorm(n_embd)  # Final layer norm
         self.lm_head = nn.Linear(n_embd, vocab_size)
-
-        self.num_bits = num_bits
 
         self.apply(self._init_weights)
 
@@ -147,4 +144,3 @@ class BPMNTransformer(nn.Module):
         idx_next = torch.multinomial(probs, num_samples=1)  # Forma: (Batch, 1)
 
         return idx_next  # Ritorna SOLO il prossimo ID
-

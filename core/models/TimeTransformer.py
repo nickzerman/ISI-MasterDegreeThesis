@@ -79,10 +79,9 @@ class Block(nn.Module):
         return x
 
 class TimeTransformer(nn.Module):
-    def __init__(self, vocab_size, num_bits, block_size, n_embd, dropout=0.2, n_head=1, n_layer=1):
+    def __init__(self, vocab_size, block_size, n_embd, dropout=0.2, n_head=1, n_layer=1):
         '''
         Args:
-            num_bits: num_regions + num_tasks
             block_size: sliding window size
             n_embd: number of embeddings
             dropout: dropout rate
@@ -93,14 +92,12 @@ class TimeTransformer(nn.Module):
         super().__init__()
 
         #self.token_projection = nn.Linear(num_bits, n_embd)
-        self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
-        self.time_embedding = nn.Linear(1, n_embd)
-        self.positional_embedding = nn.Embedding(block_size, n_embd)
+        self.token_embedding_table = nn.Embedding(vocab_size, n_embd) # Embedding per i token regione/task
+        self.time_proj = nn.Linear(1, n_embd) # Linear per il tempo
+        self.positional_embedding = nn.Embedding(block_size, n_embd) # Classico Positional Embedding
         self.blocks = nn.Sequential(*[Block(block_size, n_embd,dropout, n_head=n_head) for _ in range(n_layer)])
         self.ln_f = nn.LayerNorm(n_embd)  # Final layer norm
-        self.time_head = nn.Linear(n_embd, 1)
-
-        self.num_bits = num_bits
+        self.time_head = nn.Linear(n_embd, 1) # Da n_embd a previsione
 
         self.apply(self._init_weights)
 
@@ -117,7 +114,7 @@ class TimeTransformer(nn.Module):
 
         # idx and targets are both (B,T) tensor of integers
         tok_emb = self.token_embedding_table(idx_tasks)
-        time_emb = self.time_embedding(idx_times)
+        time_emb = self.time_proj(idx_times.unsqueeze(-1).float()) #unqueeze prende come riferimento la dimensione che inserisci
         pos_emb = self.positional_embedding(torch.arange(T, device=device))  # (T,C)
         x = tok_emb + time_emb + pos_emb  # (B,T,C)
         x = self.blocks(x)  # (B,T,C)
@@ -130,8 +127,14 @@ class TimeTransformer(nn.Module):
         if targets is None:
             loss = None
         else:
-            targets = targets.view(B, T, 1).float()
+            targets = targets.unsqueeze(-1).float()
             loss = F.mse_loss(time_pred, targets)
+
+            '''pred_last_step = time_pred[:, -1, :]  # Prendiamo solo l'ultima colonna
+
+            target_last_step = targets[:, -1].unsqueeze(-1).float()  # Prende solo l'ultimo step
+
+            loss = F.mse_loss(pred_last_step, target_last_step)'''
 
         return time_pred, loss
 
