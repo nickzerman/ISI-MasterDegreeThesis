@@ -78,8 +78,8 @@ class Block(nn.Module):
         x = x + self.ffwd(self.ln2(x)) # Add & Norm
         return x
 
-class TimeTransformer(nn.Module):
-    def __init__(self, vocab_size, block_size, n_embd, dropout=0.2, n_head=1, n_layer=1):
+class RegionTransformer(nn.Module):
+    def __init__(self, region_vocab_size, task_vocab_size, block_size, n_embd, dropout=0.2, n_head=1, n_layer=1):
         '''
         Args:
             block_size: sliding window size
@@ -92,12 +92,12 @@ class TimeTransformer(nn.Module):
         super().__init__()
 
         #self.token_projection = nn.Linear(num_bits, n_embd)
-        self.token_embedding_table = nn.Embedding(vocab_size, n_embd) # Embedding per i token regione/task
-        self.time_proj = nn.Linear(1, n_embd) # Linear per il tempo
-        self.positional_embedding = nn.Embedding(block_size, n_embd) # Classico Positional Embedding
+        self.task_embedding_table = nn.Embedding(task_vocab_size, n_embd)
+        self.region_embedding_table = nn.Embedding(region_vocab_size, n_embd)
+        self.positional_embedding = nn.Embedding(block_size, n_embd)
         self.blocks = nn.Sequential(*[Block(block_size, n_embd,dropout, n_head=n_head) for _ in range(n_layer)])
         self.ln_f = nn.LayerNorm(n_embd)  # Final layer norm
-        self.time_head = nn.Linear(n_embd, 1) # Da n_embd a previsione
+        self.lm_head = nn.Linear(n_embd, region_vocab_size)
 
         self.apply(self._init_weights)
 
@@ -109,43 +109,41 @@ class TimeTransformer(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx_tasks, idx_times, targets=None):
-        B, T = idx_tasks.size()
+    def forward(self, idx_region, idx_task, targets=None):
+        B, T = idx_region.shape
 
         # idx and targets are both (B,T) tensor of integers
-        tok_emb = self.token_embedding_table(idx_tasks)
-        time_emb = self.time_proj(idx_times.unsqueeze(-1).float()) #unqueeze prende come riferimento la dimensione che inserisci
+        task_emb = self.task_embedding_table(idx_task)
+        reg_emb = self.region_embedding_table(idx_region)
         pos_emb = self.positional_embedding(torch.arange(T, device=device))  # (T,C)
-        x = tok_emb + time_emb + pos_emb  # (B,T,C)
+        x = task_emb + reg_emb + pos_emb  # (B,T,C)
         x = self.blocks(x)  # (B,T,C)
         x = self.ln_f(x)  # (B,T,C)
 
-        time_pred = self.time_head(x)  # (B,T,vocab_size)
-
-        time_pred = F.softplus(time_pred) # Freno a mano per evitare tempi negativi
+        logits = self.lm_head(x)  # (B,T,vocab_size)
 
         if targets is None:
             loss = None
         else:
-            targets = targets.unsqueeze(-1).float()
-            loss = F.mse_loss(time_pred, targets)
+            B, T, C = logits.shape
+            logits = logits.view(B * T, C)
+            targets = targets.view(B * T)
+            loss = F.cross_entropy(logits, targets)
 
-            # Per eventuale prediction mettendo lo 0
-            '''pred_last_step = time_pred[:, -1, :]  # Prendiamo solo l'ultima colonna
-
-            target_last_step = targets[:, -1].unsqueeze(-1).float()  # Prende solo l'ultimo step
-
-            loss = F.mse_loss(pred_last_step, target_last_step)'''
-
-        return time_pred, loss
+        return logits, loss
 
     @torch.no_grad()
-    def predict_next_time(self, idx_tasks, idx_times, block_size):
-        idx_tasks_cond = idx_tasks[:, -block_size:] # Per prendere grandezza corretta (dipende dalla block_size)
-        idx_times_cond = idx_times[:, -block_size:]
+    def predict_next_region(self, idx_region, idx_task, block_size):
+        # Taglia per la finestra temporale
+        idx_tasks_cond = idx_task[:, -block_size:]
+        idx_regions_cond = idx_region[:, -block_size:]
 
-        time_pred, _ = self(idx_tasks_cond, idx_times_cond)
-        next_time = time_pred[:, -1, :]  # Forma: (Batch, 1)
+        # Chiede al modello le probabilità (prende solo l'ultimo step)
+        logits, _ = self(idx_regions_cond, idx_tasks_cond)
+        logits = logits[:, -1, :]
 
-        return next_time  # Ritorna SOLO il tempo in float
+        # Pesca il token singolo
+        probs = F.softmax(logits, dim=-1)
+        idx_next = torch.multinomial(probs, num_samples=1)  # Forma: (Batch, 1)
 
+        return idx_next  # Ritorna SOLO il prossimo ID
