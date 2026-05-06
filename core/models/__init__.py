@@ -2,5 +2,6 @@ from .PetriNetP import PetriNetP
 from .BPMNTransformer import BPMNTransformer
 from .TimeTransformer import TimeTransformer
 from .RegionTransformer import RegionTransformer
+from .TimeTransformerV2 import TimeTransformerV2
 
-__all__ = ["PetriNetP", "BPMNTransformer", "TimeTransformer", "RegionTransformer"]
+__all__ = ["PetriNetP", "BPMNTransformer", "TimeTransformer", "RegionTransformer", "TimeTransformerV2"]
