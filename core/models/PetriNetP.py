@@ -24,6 +24,8 @@ class PetriNetP:
         self.net = PetriNet('Net')
         self.initial_marking = Marking()
         self.final_marking = Marking()
+        self.loop_regions = []
+        self.tasks = []
         self.root = petri_utils.add_place(self.net, "root")
 
         netValue = self.createSubnet(self.net, self.tree, self.root, 0)
@@ -67,6 +69,7 @@ class PetriNetP:
 
         if tree.data == 'task':
             task = tree.children[0].value  # Prendo il nome della task in per esempio: T1 per --> [Tree('task', [Token('NAME', 'T1')])
+            self.tasks.append(task)
 
             # Creo tutti i nodi e tutte le transizioni
             start = "start_" + task
@@ -157,6 +160,7 @@ class PetriNetP:
             return [parent_place, p_end, counter]
 
         if tree.data == 'loop':
+            self.loop_regions.append("L" + str(counter))
             start = "start_L" + str(counter)
             end = "end_L" + str(counter)
             back = "back_L" + str(counter)
