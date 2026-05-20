@@ -44,3 +44,47 @@ def create_loop_data(loop, traces):
         x_processed.append(encoded_trace)
 
     return x_processed, y, dict_loop_step_encoding, max_len
+
+def create_task_data(task, traces_balanced_decoded, trace_times_list, dict_task_step_encoding):
+    """
+    Create the dataset for every task
+
+    Parameters
+    ----------
+    task: task label
+    traces_balanced_decoded: list of traces balanced decoded
+    trace_times_list: list of traces times balanced decoded
+    dict_task_step_encoding: how the task are encoded
+
+    Returns
+    ----------
+    x_processed: dataset input
+    y: dataset output
+    max_len: we need it to padding other traces
+
+    """
+    # Creating dataset for regression tree
+    x = []
+    y = []
+    for trace, times_trace in zip(traces_balanced_decoded, trace_times_list):
+        for i, element in enumerate(trace):
+            if element == task: # Se corrisponde alla task aggiungo al dataset
+                x.append(trace[:i])
+                y.append(times_trace[i])
+
+    if not x: # Se dataset vuoto esco
+        return None
+
+    max_len = max(len(trace) for trace in x)
+
+    if max_len == 0:  # Se tutte le tracce sono = 0 (sono sempre la prima task) esco
+        return None
+
+    x_processed = []
+    for trace in x: # Aggiungo il pad e codifico
+        reversed_trace = trace[::-1]
+        padded_trace = reversed_trace + ["PAD"] * (max_len - len(reversed_trace))
+        encoded_trace = [dict_task_step_encoding[step] for step in padded_trace]
+        x_processed.append(encoded_trace)
+
+    return x_processed, y, max_len

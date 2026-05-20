@@ -12,11 +12,23 @@ class NodoPattern(NodeMixin):
 
 class TracePatternMiner:
     def __init__(self):
-        # Inizializziamo la radice dell'albero e il dizionario dei nodi
-        self.root = NodoPattern(name="ROOT")
-        self.nodes = {}
+        self.root = NodoPattern(name="root", parent=None) # Nodo radice
+        self.nodes = {} # Dizionario nodes
 
     def fit_trace(self, trace, max_depth=10):
+        """
+        Add/Count trace
+
+        Parameters
+        ----------
+        trace
+        max_depth
+
+        Returns
+        -------
+        None
+
+        """
         current_node = self.root
 
         cutted_trace = trace[:max_depth] # Tagliamo la traccia se necessario (prendiamo gli ultimi max_depth elementi)
@@ -36,6 +48,18 @@ class TracePatternMiner:
                 self.nodes[new_node] = node_path # Lo salvo nel dizionario dei nodi
 
     def select_patterns(self, num_traces, k):
+        """
+
+        Parameters
+        ----------
+        num_traces: num_total_traces
+        k: num of partitions
+
+        Returns
+        -------
+        partitions
+
+        """
         partitions = {
             "RESIDUALS" : {
                 "numTraces" : num_traces,
@@ -68,10 +92,10 @@ class TracePatternMiner:
             nodes_left = [node for node in partition["nodes"] if node not in best_node_children and node != best_node] # Li tolgo dal gruppo di prima
             counter_left = max(0, partition["numTraces"] - best_node.counter) # E aggiorno il counter del gruppo di prima
 
-            if counter_left==0:
+            if counter_left==0: # Se counter_left è 0 significa che sono andato avanti di 1 rispetto ad un pattern che ha come uscita solo questa strada (elimino il pattern precedente)
                 del partitions[biggerpartition]
                 step -= 1
-            else:
+            else: # Altrimenti aggiorno il vecchio pattern
                 partitions[biggerpartition]["numTraces"] = counter_left
                 partitions[biggerpartition]["nodes"] = nodes_left
 
@@ -79,6 +103,7 @@ class TracePatternMiner:
             if new_pattern in partitions:
                 new_pattern = f'{best_node.name}_{step}'
 
+            # Aggiungo il nuovo pattern
             partitions[new_pattern] = {
                 "numTraces" : best_node.counter,
                 "nodes" : best_node_children
@@ -93,6 +118,17 @@ class TracePatternMiner:
         return partitions
 
     def create_normalized_time_map(self, partitions):
+        """
+
+        Parameters
+        ----------
+        partitions
+
+        Returns
+        -------
+        times_map: mapping time-partition
+
+        """
         times_map = {}
 
         times = [2**i for i in range(len(partitions)+1)] # Esponenziale (con il +1 evito di assegnare 0.0 che è l'inizio della traccia)
@@ -105,17 +141,3 @@ class TracePatternMiner:
             times_map[key] = times[i+1]
 
         return times_map
-
-    def assign_time(self, trace, times_map, window=10):
-        last_elements = trace[-window:]
-        reversed_trace = list(reversed(last_elements))
-
-        while len(reversed_trace) > 0:
-            path = "-" + "-".join(reversed_trace)
-
-            if path in times_map:
-                return times_map[path]
-
-            reversed_trace.pop()
-
-        return times_map["RESIDUALS"]

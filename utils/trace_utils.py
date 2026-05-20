@@ -1,5 +1,4 @@
 import numpy as np
-import pandas as pd
 import random
 
 def hamming_distance(t1, t2):
@@ -115,7 +114,8 @@ def get_balance_traces_by_cluster(traces_encoded, cluster_labels, num_trace_per_
 
     Returns
     ----------
-    balanced_traces: columns like initial dataframe of traces
+    balanced_traces: traces like initial dataframe of traces
+    balanced_columns: columns like initial dataframe of traces
 
     """
     variants_per_cluster = {}
@@ -139,4 +139,31 @@ def get_balance_traces_by_cluster(traces_encoded, cluster_labels, num_trace_per_
         for step in traccia:
             balanced_columns.append(step)
 
-    return balanced_columns
+    return balanced_traces, balanced_columns
+
+def assign_time(trace, times_map, window=10):
+    """
+
+    Parameters
+    ----------
+    trace
+    times_map
+    window: how much we look back in the trace
+
+    Returns
+    -------
+    time
+
+    """
+    last_elements = trace[-window:]
+    reversed_trace = list(reversed(last_elements))
+
+    while len(reversed_trace) > 0:
+        path = "-" + "-".join(reversed_trace)
+
+        if path in times_map:
+            return times_map[path]
+
+        reversed_trace.pop()
+
+    return times_map["RESIDUALS"]
