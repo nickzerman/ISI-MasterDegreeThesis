@@ -79,9 +79,11 @@ class Block(nn.Module):
         return x
 
 class TimeTransformer(nn.Module):
-    def __init__(self, vocab_size, block_size, n_embd, dropout=0.2, n_head=1, n_layer=1):
+    def __init__(self, vocab_size_task, block_size, n_embd, dropout=0.2, n_head=1, n_layer=1, vocab_size_region=None, separated_regions=True):
         '''
         Args:
+            vocab_size_task: task or task+region vocabulary
+            vocab_size_region: region vocabulary
             block_size: sliding window size
             n_embd: number of embeddings
             dropout: dropout rate
@@ -91,9 +93,13 @@ class TimeTransformer(nn.Module):
 
         super().__init__()
 
-        #self.token_projection = nn.Linear(num_bits, n_embd)
-        self.token_embedding_table = nn.Embedding(vocab_size, n_embd) # Embedding per i token regione/task
-        self.time_proj = nn.Linear(1, n_embd) # Linear per il tempo
+        self.separated_regions = separated_regions
+
+        self.task_embedding_table = nn.Embedding(vocab_size_task, n_embd)  # Embedding per i token regione/task
+        self.time_proj = nn.Linear(1, n_embd)  # Linear per il tempo
+        if self.separated_regions:
+            self.region_embedding_table = nn.Embedding(vocab_size_region, n_embd)
+
         self.positional_embedding = nn.Embedding(block_size, n_embd) # Classico Positional Embedding
         self.blocks = nn.Sequential(*[Block(block_size, n_embd,dropout, n_head=n_head) for _ in range(n_layer)])
         self.ln_f = nn.LayerNorm(n_embd)  # Final layer norm
@@ -109,14 +115,20 @@ class TimeTransformer(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx_tasks, idx_times, targets=None):
+    def forward(self, idx_tasks, idx_times, idx_region=None, targets=None):
         B, T = idx_tasks.size()
 
         # idx and targets are both (B,T) tensor of integers
-        tok_emb = self.token_embedding_table(idx_tasks)
+        task_emb = self.task_embedding_table(idx_tasks)
         time_emb = self.time_proj(idx_times.unsqueeze(-1).float()) #unqueeze prende come riferimento la dimensione che inserisci
         pos_emb = self.positional_embedding(torch.arange(T, device=device))  # (T,C)
-        x = tok_emb + time_emb + pos_emb  # (B,T,C)
+
+        if self.separated_regions:
+            region_emb = self.region_embedding_table(idx_region)
+            x = task_emb + region_emb + time_emb + pos_emb  # (B,T,C)
+        else:
+            x = task_emb + time_emb + pos_emb  # (B,T,C)
+
         x = self.blocks(x)  # (B,T,C)
         x = self.ln_f(x)  # (B,T,C)
 
@@ -130,21 +142,19 @@ class TimeTransformer(nn.Module):
             targets = targets.unsqueeze(-1).float()
             loss = F.mse_loss(time_pred, targets)
 
-            # Per eventuale prediction mettendo lo 0
-            '''pred_last_step = time_pred[:, -1, :]  # Prendiamo solo l'ultima colonna
-
-            target_last_step = targets[:, -1].unsqueeze(-1).float()  # Prende solo l'ultimo step
-
-            loss = F.mse_loss(pred_last_step, target_last_step)'''
-
         return time_pred, loss
 
     @torch.no_grad()
-    def predict_next_time(self, idx_tasks, idx_times, block_size):
+    def predict_next_time(self, idx_tasks, idx_times, block_size, idx_regions=None):
         idx_tasks_cond = idx_tasks[:, -block_size:] # Per prendere grandezza corretta (dipende dalla block_size)
         idx_times_cond = idx_times[:, -block_size:]
 
-        time_pred, _ = self(idx_tasks_cond, idx_times_cond)
+        if self.separated_regions:
+            idx_regions_cond = idx_regions[:, -block_size:]
+            time_pred, _ = self(idx_tasks_cond, idx_times_cond, idx_regions_cond)
+        else:
+            time_pred, _ = self(idx_tasks_cond, idx_times_cond)
+
         next_time = time_pred[:, -1, :]  # Forma: (Batch, 1)
 
         return next_time  # Ritorna SOLO il tempo in float

@@ -1,4 +1,5 @@
 from lark import Tree
+import torch
 
 def createNAryTree(tree):
     """

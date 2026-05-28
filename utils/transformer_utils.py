@@ -230,7 +230,7 @@ def estimate_loss_times(model, eval_iters, train_data, train_times, val_data, va
         losses = torch.zeros(eval_iters)
         for k in range(eval_iters):
             X_data, X_times, Y = get_batch_model_time(split, train_data, train_times, val_data, val_times, batch_size, block_size, device)
-            logits, loss = model(X_data, X_times, Y)
+            logits, loss = model(X_data, X_times, targets=Y)
             losses[k] = loss.item()
         out[split] = losses.mean()
 
@@ -268,7 +268,7 @@ def estimate_loss_times_v2(model, eval_iters, train_task, train_region, train_ti
         losses = torch.zeros(eval_iters)
         for k in range(eval_iters):
             X_task, X_region, X_times, Y = get_batch_model_time_v2(split, train_task, train_region, train_times, val_task, val_region, val_times, batch_size, block_size, device)
-            logits, loss = model(X_task, X_region, X_times, Y)
+            logits, loss = model(X_task, X_times, X_region, Y)
             losses[k] = loss.item()
         out[split] = losses.mean()
 

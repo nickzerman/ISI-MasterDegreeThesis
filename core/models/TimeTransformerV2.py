@@ -1,4 +1,4 @@
-'Time transformer with divided task and region'
+'Time transformer with divided task and region - IN TEORIA NON SERVE PIU'
 
 import torch
 import torch.nn as nn
