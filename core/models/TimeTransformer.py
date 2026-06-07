@@ -79,16 +79,17 @@ class Block(nn.Module):
         return x
 
 class TimeTransformer(nn.Module):
-    def __init__(self, vocab_size_task, block_size, n_embd, dropout=0.2, n_head=1, n_layer=1, vocab_size_region=None, separated_regions=True):
+    def __init__(self, vocab_size_task, block_size, n_embd, dropout=0.2, n_head=1, n_layer=1, vocab_size_region=None, separated_regions=False):
         '''
         Args:
             vocab_size_task: task or task+region vocabulary
-            vocab_size_region: region vocabulary
+            vocab_size_region: region vocabulary (it could be None in some variants)
             block_size: sliding window size
             n_embd: number of embeddings
             dropout: dropout rate
             n_head: number of attention heads
             n_layer: number of layers
+            separated_regions: in some variants we have regions in other none
         '''
 
         super().__init__()

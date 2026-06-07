@@ -1,8 +1,10 @@
 from lark import Lark, Tree, Token
 import pydot
+import numpy as np
 from PIL import Image
+from pathlib import Path
 
-exec(open("core/library_process_generation/generation_helpers.py").read())
+exec((Path(__file__).parent / "generation_helpers.py").read_text())
 
 
 PROCESS_GRAMMAR = r"""

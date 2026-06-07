@@ -1,16 +1,24 @@
 # --- Python ---
-__pycache__/               # File compilati di Python (velocizzano l'esecuzione locale)
-*.py[cod]                  # Bytecode Python
-*$py.class                 # Bytecode per Jython
-.pytest_cache/             # Cache se userai i test (es. pytest)
-.venv/                     # Ambiente virtuale (fondamentale escluderlo!)
-venv/                      # Nome alternativo comune per l'ambiente virtuale
+# File compilati / bytecode di Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Cache se userai i test (es. pytest)
+.pytest_cache/
+
+# Ambienti virtuali
+.venv/
+venv/
 env/
 
 # --- IDE (PyCharm / VS Code) ---
-.idea/                     # Impostazioni specifiche di PyCharm (es. Source Roots)
-.vscode/                   # Impostazioni di Visual Studio Code
-*.swp                      # File temporanei degli editor di testo
+# Impostazioni specifiche di PyCharm (es. Source Roots)
+.idea/
+# Impostazioni di Visual Studio Code
+.vscode/
+# File temporanei degli editor di testo
+*.swp
 
 # --- Dati e Output ---
 # Se non vuoi caricare i risultati delle elaborazioni o i log:

@@ -1,8 +1,8 @@
 from .PetriNetP import PetriNetP
-from .BPMNTransformer import BPMNTransformer
+from .TaskTransformer import TaskTransformer
 from .TimeTransformer import TimeTransformer
 from .RegionTransformer import RegionTransformer
-from .TimeTransformerV2 import TimeTransformerV2
+from .UnifiedTransformer import UnifiedTransformer
 from .PatternTree import TracePatternMiner
 
-__all__ = ["PetriNetP", "BPMNTransformer", "TimeTransformer", "RegionTransformer", "TimeTransformerV2", "TracePatternMiner"]
+__all__ = ["PetriNetP", "TaskTransformer", "TimeTransformer", "RegionTransformer", "UnifiedTransformer", "TracePatternMiner"]

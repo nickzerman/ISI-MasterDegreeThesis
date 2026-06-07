@@ -1,5 +1,3 @@
-'Time transformer with divided task and region - IN TEORIA NON SERVE PIU'
-
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -80,27 +78,40 @@ class Block(nn.Module):
         x = x + self.ffwd(self.ln2(x)) # Add & Norm
         return x
 
-class TimeTransformerV2(nn.Module):
-    def __init__(self, vocab_size_task, vocab_size_region, block_size, n_embd, dropout=0.2, n_head=1, n_layer=1):
+class TaskTransformer(nn.Module):
+    def __init__(self, task_vocab_size, block_size, n_embd, dropout=0.2, n_head=1, n_layer=1, region_vocab_size=None, separated=False):
         '''
         Args:
+            task_vocab_size: task vocabulary
+            region_vocab_size: region vocabulary (it could be None in some variants)
             block_size: sliding window size
             n_embd: number of embeddings
             dropout: dropout rate
             n_head: number of attention heads
             n_layer: number of layers
+            separated: in some variants region and task could be separated
         '''
 
+        assert not separated or region_vocab_size is not None
+
         super().__init__()
+        self.separated = separated
 
         #self.token_projection = nn.Linear(num_bits, n_embd)
-        self.task_embedding_table = nn.Embedding(vocab_size_task, n_embd) # Embedding per i token regione/task
-        self.region_embedding_table = nn.Embedding(vocab_size_region, n_embd)
-        self.time_proj = nn.Linear(1, n_embd) # Linear per il tempo
-        self.positional_embedding = nn.Embedding(block_size, n_embd) # Classico Positional Embedding
+        self.task_embedding_table = nn.Embedding(task_vocab_size, n_embd)
+
+        if self.separated:
+            self.region_embedding_table = nn.Embedding(region_vocab_size, n_embd)
+
+        self.positional_embedding = nn.Embedding(block_size, n_embd)
         self.blocks = nn.Sequential(*[Block(block_size, n_embd,dropout, n_head=n_head) for _ in range(n_layer)])
         self.ln_f = nn.LayerNorm(n_embd)  # Final layer norm
-        self.time_head = nn.Linear(n_embd, 1) # Da n_embd a previsione
+
+        if self.separated:
+            self.task_head = nn.Linear(n_embd, task_vocab_size)
+            self.region_head = nn.Linear(n_embd, region_vocab_size)
+        else:
+            self.lm_head = nn.Linear(n_embd, task_vocab_size)
 
         self.apply(self._init_weights)
 
@@ -112,45 +123,60 @@ class TimeTransformerV2(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx_tasks, idx_region, idx_times, targets=None):
-        B, T = idx_tasks.size()
+    def forward(self, idx_task, idx_region=None, targets_task=None, targets_region=None):
+        B, T = idx_task.shape
 
-        # idx and targets are both (B,T) tensor of integers
-        task_emb = self.task_embedding_table(idx_tasks)
-        region_emb = self.region_embedding_table(idx_region)
-        time_emb = self.time_proj(idx_times.unsqueeze(-1).float()) #unqueeze prende come riferimento la dimensione che inserisci
+        task_emb = self.task_embedding_table(idx_task)
         pos_emb = self.positional_embedding(torch.arange(T, device=device))  # (T,C)
-        x = task_emb + region_emb + time_emb + pos_emb  # (B,T,C)
+        if self.separated:
+            region_emb = self.region_embedding_table(idx_region)
+            x = task_emb + region_emb + pos_emb  # (B,T,C)
+        else:
+            x = task_emb + pos_emb
         x = self.blocks(x)  # (B,T,C)
         x = self.ln_f(x)  # (B,T,C)
 
-        time_pred = self.time_head(x)  # (B,T,vocab_size)
+        if self.separated:
+            task_logits = self.task_head(x)    # (B,T,task_vocab_size)
+            region_logits = self.region_head(x)  # (B,T,region_vocab_size)
 
-        time_pred = F.softplus(time_pred) # Freno a mano per evitare tempi negativi
-
-        if targets is None:
             loss = None
+            if targets_task is not None and targets_region is not None:
+                task_loss   = F.cross_entropy(task_logits.view(B * T, -1),   targets_task.view(B * T))
+                region_loss = F.cross_entropy(region_logits.view(B * T, -1), targets_region.view(B * T))
+                loss = task_loss + region_loss
+            return task_logits, region_logits, loss
         else:
-            targets = targets.unsqueeze(-1).float()
-            loss = F.mse_loss(time_pred, targets)
+            logits = self.lm_head(x)  # (B,T,task_vocab_size)
 
-            # Per eventuale prediction mettendo lo 0
-            '''pred_last_step = time_pred[:, -1, :]  # Prendiamo solo l'ultima colonna
+            loss = None
+            if targets_task is not None:
+                loss = F.cross_entropy(logits.view(B * T, -1), targets_task.view(B * T))
 
-            target_last_step = targets[:, -1].unsqueeze(-1).float()  # Prende solo l'ultimo step
-
-            loss = F.mse_loss(pred_last_step, target_last_step)'''
-
-        return time_pred, loss
+            return logits, loss
 
     @torch.no_grad()
-    def predict_next_time(self, idx_tasks, idx_regions, idx_times, block_size):
-        idx_tasks_cond = idx_tasks[:, -block_size:] # Per prendere grandezza corretta (dipende dalla block_size)
-        idx_regions_cond = idx_regions[:, -block_size:]
-        idx_times_cond = idx_times[:, -block_size:]
+    def predict_next(self, idx_task, idx_region, block_size):
+        """Solo per separated=True. Ritorna (idx_task_next, idx_region_next) in un'unica forward pass."""
+        # Taglia per la finestra temporale
+        idx_tasks_cond = idx_task[:, -block_size:]
+        idx_regions_cond = idx_region[:, -block_size:]
 
-        time_pred, _ = self(idx_tasks_cond, idx_regions_cond, idx_times_cond)
-        next_time = time_pred[:, -1, :]  # Forma: (Batch, 1)
+        # Chiede al modello le probabilità (prende solo l'ultimo step)
+        task_logits, region_logits, _ = self(idx_tasks_cond, idx_regions_cond)
 
-        return next_time  # Ritorna SOLO il tempo in float
+        task_probs = F.softmax(task_logits[:, -1, :],   dim=-1)
+        region_probs = F.softmax(region_logits[:, -1, :], dim=-1)
 
+        ids_task_next = torch.multinomial(task_probs, num_samples=1)
+        ids_region_next = torch.multinomial(region_probs, num_samples=1)
+        return ids_task_next, ids_region_next
+
+    @torch.no_grad()
+    def predict_next_task(self, idx_task, block_size):
+        """Solo per separated=False."""
+        idx_tasks_cond = idx_task[:, -block_size:]
+        logits, _ = self(idx_tasks_cond)
+        probs = F.softmax(logits[:, -1, :], dim=-1)
+        ids_next = torch.multinomial(probs, num_samples=1)
+        return ids_next

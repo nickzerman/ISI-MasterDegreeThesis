@@ -107,7 +107,7 @@ def generateTrace(net, initial_marking, final_marking, check, clean):
 
     return trace
 
-def generateTraceCond(net, initial_marking, final_marking, check, classifier_dict):
+def generateTraceCond(net, initial_marking, final_marking, check, classifier_dict, limit=100):
     """
         Generate a trace of Petri Net with decision tree on LOOP region.
 
@@ -135,6 +135,9 @@ def generateTraceCond(net, initial_marking, final_marking, check, classifier_dic
     loop = tuple(["end_L"]) + tuple(["back_L"])
 
     while current_marking != final_marking:  # Fino a quando il marking non corrisponde al finale, quindi fino a quando non ho finito di generare la traccia
+        if len(trace) > limit:
+            return None
+
         transitions = enabled_transitions(net,current_marking)  # Lista delle possibili transizioni possibili al current marking
 
         loops_end = [item for item in transitions if item.name.startswith(loop)]
@@ -208,9 +211,14 @@ class Generator:
 
     def generateTraceCond(self, classifier_dict):
         self.generatedTraces = []
-        for i in range(self.num_traces):
-            self.generatedTraces.append(
-                generateTraceCond(self.net.net, self.net.initial_marking, self.net.final_marking, ["P", "X", "L"], classifier_dict)
-            )
+
+        # Uso un while per assicurarmi di avere esattamente 'num_traces' tracce valide
+        while len(self.generatedTraces) < self.num_traces:
+            newTrace = generateTraceCond(self.net.net, self.net.initial_marking, self.net.final_marking,
+                                         ["P", "X", "L"], classifier_dict)
+
+            if newTrace is not None:
+                self.generatedTraces.append(newTrace)
+
         return self.generatedTraces
 
