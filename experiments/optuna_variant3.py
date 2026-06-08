@@ -7,7 +7,7 @@ from core.training import train_task, train_region, train_time_v2
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-info = torch.load('../data/prepared_data.pt', map_location=device, weights_only=False)
+info = torch.load('data/prepared_data.pt', map_location=device, weights_only=False)
 n = info['n']
 data = {
     'train_tasks':   info['data_tasks'][:n],

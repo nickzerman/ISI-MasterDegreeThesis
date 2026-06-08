@@ -6,7 +6,7 @@ def train_task(model, data, param, device, data_key='complete', trial=None, prin
     """Train TaskTransformer. data_key: 'complete' o 'tasks'."""
     train_data = data[f'train_{data_key}']
     val_data = data[f'val_{data_key}']
-    optimizer = torch.optim.AdamW(model.parameters(), lr=param['lr'])
+    optimizer = torch.optim.AdamW(model.parameters(), lr=param['lr'], weight_decay=param.get('weight_decay', 0.01))
     best_val = float('inf')
 
     for iter in range(param['max_iters']):
@@ -38,7 +38,7 @@ def train_task_separated(model, data, param, device, trial=None, printing=False)
     val_task_d = data['val_tasks']
     train_region_d = data['train_regions']
     val_region_d = data['val_regions']
-    optimizer = torch.optim.AdamW(model.parameters(), lr=param['lr'])
+    optimizer = torch.optim.AdamW(model.parameters(), lr=param['lr'], weight_decay=param.get('weight_decay', 0.01))
     best_val = float('inf')
 
     for iter in range(param['max_iters']):
@@ -76,7 +76,7 @@ def train_region(model, data, param, device, trial=None, printing=False):
     val_task_d = data['val_tasks']
     train_region_d = data['train_regions']
     val_region_d = data['val_regions']
-    optimizer = torch.optim.AdamW(model.parameters(), lr=param['lr'])
+    optimizer = torch.optim.AdamW(model.parameters(), lr=param['lr'], weight_decay=param.get('weight_decay', 0.01))
     best_val = float('inf')
 
     for iter in range(param['max_iters']):
@@ -107,7 +107,7 @@ def train_time(model, data, param, device, trial=None, printing=False):
     val_data = data['val_complete']
     train_times = data['train_times']
     val_times = data['val_times']
-    optimizer = torch.optim.AdamW(model.parameters(), lr=param['lr'])
+    optimizer = torch.optim.AdamW(model.parameters(), lr=param['lr'], weight_decay=param.get('weight_decay', 0.01))
     best_val = float('inf')
 
     for iter in range(param['max_iters']):
@@ -140,7 +140,7 @@ def train_time_v2(model, data, param, device, trial=None, printing=False):
     val_region_d = data['val_regions']
     train_times = data['train_times']
     val_times = data['val_times']
-    optimizer = torch.optim.AdamW(model.parameters(), lr=param['lr'])
+    optimizer = torch.optim.AdamW(model.parameters(), lr=param['lr'], weight_decay=param.get('weight_decay', 0.01))
     best_val = float('inf')
 
     for iter in range(param['max_iters']):
@@ -173,7 +173,7 @@ def train_unified(model, data, param, device, trial=None, printing=False):
     val_region_d = data['val_regions']
     train_times = data['train_times']
     val_times = data['val_times']
-    optimizer = torch.optim.AdamW(model.parameters(), lr=param['lr'])
+    optimizer = torch.optim.AdamW(model.parameters(), lr=param['lr'], weight_decay=param.get('weight_decay', 0.01))
     best_val  = float('inf')
 
     for iter in range(param['max_iters']):
@@ -207,7 +207,7 @@ def train_unified_onlyregion(model, data, param, device, trial=None, printing=Fa
     val_region_d = data['val_regions']
     train_times = data['train_times']
     val_times = data['val_times']
-    optimizer = torch.optim.AdamW(model.parameters(), lr=param['lr'])
+    optimizer = torch.optim.AdamW(model.parameters(), lr=param['lr'], weight_decay=param.get('weight_decay', 0.01))
     best_val  = float('inf')
 
     for iter in range(param['max_iters']):
@@ -239,7 +239,7 @@ def train_unified_taskregion(model, data, param, device, trial=None, printing=Fa
     val_complete = data['val_complete']
     train_times = data['train_times']
     val_times = data['val_times']
-    optimizer = torch.optim.AdamW(model.parameters(), lr=param['lr'])
+    optimizer = torch.optim.AdamW(model.parameters(), lr=param['lr'], weight_decay=param.get('weight_decay', 0.01))
     best_val  = float('inf')
 
     for iter in range(param['max_iters']):
