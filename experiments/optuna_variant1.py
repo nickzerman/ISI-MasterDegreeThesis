@@ -1,14 +1,14 @@
 """V1 — TaskTransformer (complete token) + TimeTransformer (not separated)."""
-import os
 import gc
 import torch
 import optuna
+from config import DATA_DIR, RESULTS_DIR
 from core.models import TaskTransformer, TimeTransformer
 from core.training import train_task, train_time
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-info = torch.load('data/prepared_data.pt', map_location=device, weights_only=False)
+info = torch.load(DATA_DIR / 'prepared_data.pt', map_location=device, weights_only=False)
 n = info['n']
 data = {
     'train_complete': info['data_complete'][:n],
@@ -19,7 +19,7 @@ data = {
 vocab_size = info['vocab_size_complete']
 
 
-FIXED_TASK = {'max_iters': 2250, 'eval_iters': 100, 'eval_interval': 100}
+FIXED_TASK = {'max_iters': 1000, 'eval_iters': 100, 'eval_interval': 100}
 FIXED_TIME = {'max_iters': 500, 'eval_iters': 100, 'eval_interval': 100}
 
 
@@ -82,9 +82,9 @@ def objective_time(trial):
 
 def run(n_trials_task=50,n_trials_time=50):
     pruner = optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=100)
-    storage = 'sqlite:///results/optuna.db'
-    os.makedirs('results', exist_ok=True)
-    os.makedirs('data', exist_ok=True)
+    storage = f'sqlite:///{RESULTS_DIR / "optuna.db"}'
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     study_task = optuna.create_study(
         direction='minimize', pruner=pruner, study_name='v1_task_complete',
@@ -103,7 +103,7 @@ def run(n_trials_task=50,n_trials_time=50):
     torch.save({
         'TaskTransformer': study_task.best_params,
         'TimeTransformer': study_time.best_params,
-    }, 'data/v1_best_params.pt')
+    }, DATA_DIR / 'v1_best_params.pt')
 
     return study_task, study_time
 

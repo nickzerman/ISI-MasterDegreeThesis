@@ -1,13 +1,14 @@
 """V6 — UnifiedTransformer (combined complete token, region + time, no separate task)."""
-import os
+import gc
 import torch
 import optuna
+from config import DATA_DIR, RESULTS_DIR
 from core.models.UnifiedTransformer import UnifiedTransformer
 from core.training import train_unified_taskregion
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-info = torch.load('data/prepared_data.pt', map_location=device, weights_only=False)
+info = torch.load(DATA_DIR / 'prepared_data.pt', map_location=device, weights_only=False)
 n = info['n']
 data = {
     'train_complete': info['data_complete'][:n],
@@ -17,7 +18,7 @@ data = {
 }
 vocab_size_complete = info['vocab_size_complete']
 
-FIXED = {'max_iters': 500, 'eval_iters': 100, 'eval_interval': 100}
+FIXED = {'max_iters': 1500, 'eval_iters': 100, 'eval_interval': 100}
 
 
 def objective(trial):
@@ -28,6 +29,7 @@ def objective(trial):
         'n_layer':    trial.suggest_categorical('n_layer', [1, 2, 4, 8]),
         'dropout':    trial.suggest_float('dropout', 0.1, 0.4),
         'lr':         trial.suggest_float('lr', 1e-4, 1e-3, log=True),
+        'weight_decay': trial.suggest_float('weight_decay', 1e-4, 1e-1, log=True),
         'batch_size': trial.suggest_categorical('batch_size', [16, 32, 64, 128]),
         **FIXED,
     }
@@ -41,14 +43,19 @@ def objective(trial):
         separated_task=False,
         predict_task=False,
     ).to(device)
-    return train_unified_taskregion(model, data, config, device, trial=trial)
+    try:
+        return train_unified_taskregion(model, data, config, device, trial=trial)
+    finally:
+        del model
+        gc.collect()
+        torch.cuda.empty_cache()
 
 
 def run(n_trials=50):
     pruner = optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=100)
-    storage = 'sqlite:///results/optuna.db'
-    os.makedirs('results', exist_ok=True)
-    os.makedirs('data', exist_ok=True)
+    storage = f'sqlite:///{RESULTS_DIR / "optuna.db"}'
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     study = optuna.create_study(
         direction='minimize', pruner=pruner, study_name='v6_unified_taskregion',
@@ -59,7 +66,7 @@ def run(n_trials=50):
 
     torch.save({
         'UnifiedTransformer': study.best_params,
-    }, '../data/v6_best_params.pt')
+    }, DATA_DIR / 'v6_best_params.pt')
 
     return study
 

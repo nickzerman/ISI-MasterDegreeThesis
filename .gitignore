@@ -23,6 +23,6 @@ env/
 # --- Dati e Output ---
 # Se non vuoi caricare i risultati delle elaborazioni o i log:
 *.log
-data/
+data/prepared_data.pt
 backup/
 /petri_net_output.png
