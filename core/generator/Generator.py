@@ -97,7 +97,7 @@ def generateTrace(net, initial_marking, final_marking, check, clean):
                     current_marking = execute(choice, net, current_marking)
 
     if clean:
-        deletion = start + end # back_L ed end_L mi servono per fare il decision tree (end_L anche successivamente per fare la codifica in bit)
+        deletion = start + end + tuple(["start_X"]) # back_L ed end_L mi servono per fare il decision tree (end_L anche successivamente per fare la codifica in bit)
         trace_cleaned = []
         for t in trace:
             if not (t.startswith(deletion)):
@@ -121,8 +121,10 @@ def generateTraceCond(net, initial_marking, final_marking, check, classifier_dic
             Final Marking of the Petri Net
         check
             list of char like 'P' and 'X', we use them to consume start and end region when we can
-        classifier_dict
+        classifier_dict_loop
             dict of list value ("loop_region" : {"model": clf1, "encoding": enc1, "pad": 10} ...)
+        classifier_dict_xor
+            dict of list value ("xor_region" : {"model": clf1, "encoding": enc1, "pad": 10} ...)
         Returns
         ----------
         trace
@@ -147,37 +149,50 @@ def generateTraceCond(net, initial_marking, final_marking, check, classifier_dic
             loop_choice = random.choice(loops_end)
             loop_region = loop_choice.name.split("_")[1]
 
-            clf, encoding_clf, pad_clf = classifier_dict_loop[loop_region]
-
-            reversed_trace = trace[::-1][:pad_clf] # Solo gli ultimi pad_clf elementi (in teoria dovrebbe andare bene)
-            padded_trace = reversed_trace + ["PAD"] * (pad_clf - len(reversed_trace))
-
-            # Usiamo .get(step, 0) per gestire attività sconosciute o PAD --> NON lo metto perchè NON dovrebbe servire in realtà
-            encoded_trace = [encoding_clf[step] for step in padded_trace]
-
-            pred_class = clf.predict([encoded_trace])[0]
-
-            if pred_class == 1:
-                choice = next((t for t in loops_end if t.name.startswith("end_" + loop_region)), None)
+            if loop_region not in classifier_dict_loop:
+                choice = loop_choice
             else:
-                choice = next((t for t in loops_end if t.name.startswith("back_" + loop_region)), None)
+                clf, encoding_clf, pad_clf = classifier_dict_loop[loop_region]
+
+                reversed_trace = trace[::-1][:pad_clf] # Solo gli ultimi pad_clf elementi (in teoria dovrebbe andare bene)
+                padded_trace = reversed_trace + ["PAD"] * (pad_clf - len(reversed_trace))
+
+                # Usiamo .get(step, 0) per gestire attività sconosciute o PAD --> NON lo metto perchè NON dovrebbe servire in realtà
+                encoded_trace = [encoding_clf[step] for step in padded_trace]
+
+                pred_class = clf.predict([encoded_trace])[0]
+
+                if pred_class == 1:
+                    choice = next((t for t in loops_end if t.name.startswith("end_" + loop_region)), None)
+                else:
+                    choice = next((t for t in loops_end if t.name.startswith("back_" + loop_region)), None)
+
             trace.append(choice.name)
             current_marking = execute(choice, net, current_marking)
         elif previous_step.startswith("start_X"):
             xor_region = previous_step.split("_")[1]
 
-            clf, encoding_clf, pad_clf, class_to_branch = classifier_dict_xor[xor_region]
+            if xor_region not in classifier_dict_xor:
+                choice = random.choice(list(transitions))
+            else:
+                clf, encoding_clf, pad_clf, class_to_branch = classifier_dict_xor[xor_region]
 
-            reversed_trace = trace[::-1][:pad_clf]  # Solo gli ultimi pad_clf elementi (in teoria dovrebbe andare bene)
-            padded_trace = reversed_trace + ["PAD"] * (pad_clf - len(reversed_trace))
+                if clf.get_depth() == 0: # Se non ho split (evito di chiudere la porta in faccia ad una parte di processo)
+                    proba = clf.predict_proba([[0] * pad_clf])[0] # Prendo le probabilità
+                    pred_class = random.choices(clf.classes_, weights=proba, k=1)[0] # E tiro a caso con quelle probabilità
+                    branch = class_to_branch[pred_class]
+                    choice = next((t for t in transitions if t.name.startswith(branch)), None)
+                else: # Altrimenti guardo la predizione del classificato
+                    reversed_trace = trace[:-1][::-1][:pad_clf]  # Solo gli ultimi pad_clf elementi (in teoria dovrebbe andare bene, taglio anche l'ultimo step perchè coincide con lo start dello xor)
+                    padded_trace = reversed_trace + ["PAD"] * (pad_clf - len(reversed_trace))
 
-            # Usiamo .get(step, 0) per gestire attività sconosciute o PAD --> NON lo metto perchè NON dovrebbe servire in realtà
-            encoded_trace = [encoding_clf[step] for step in padded_trace]
+                    # Usiamo .get(step, 0) per gestire attività sconosciute o PAD --> NON lo metto perchè NON dovrebbe servire in realtà
+                    encoded_trace = [encoding_clf[step] for step in padded_trace]
 
-            pred_class = clf.predict([encoded_trace])[0]
-            branch = class_to_branch[pred_class]
+                    pred_class = clf.predict([encoded_trace])[0]
+                    branch = class_to_branch[pred_class]
+                    choice = next((t for t in transitions if t.name.startswith(branch)), None)
 
-            choice = next((t for t in transitions if t.name.startswith(branch)), None)
             trace.append(choice.name)
             current_marking = execute(choice, net, current_marking)
         else:
