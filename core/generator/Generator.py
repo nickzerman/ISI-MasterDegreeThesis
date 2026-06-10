@@ -107,7 +107,7 @@ def generateTrace(net, initial_marking, final_marking, check, clean):
 
     return trace
 
-def generateTraceCond(net, initial_marking, final_marking, check, classifier_dict, limit=100):
+def generateTraceCond(net, initial_marking, final_marking, check, classifier_dict_loop, classifier_dict_xor, limit=100):
     """
         Generate a trace of Petri Net with decision tree on LOOP region.
 
@@ -134,18 +134,20 @@ def generateTraceCond(net, initial_marking, final_marking, check, classifier_dic
     end = tuple(["end_" + c for c in check if c!="L"]) # si escludono gli end loop
     loop = tuple(["end_L"]) + tuple(["back_L"])
 
+    previous_step = ""
+
     while current_marking != final_marking:  # Fino a quando il marking non corrisponde al finale, quindi fino a quando non ho finito di generare la traccia
         if len(trace) > limit:
             return None
 
         transitions = enabled_transitions(net,current_marking)  # Lista delle possibili transizioni possibili al current marking
 
-        loops_end = [item for item in transitions if item.name.startswith(loop)]
+        loops_end = [item for item in transitions if item.name.startswith(loop)] # Se sono alla fine di un loop
         if loops_end:
             loop_choice = random.choice(loops_end)
             loop_region = loop_choice.name.split("_")[1]
 
-            clf, encoding_clf, pad_clf = classifier_dict[loop_region]
+            clf, encoding_clf, pad_clf = classifier_dict_loop[loop_region]
 
             reversed_trace = trace[::-1][:pad_clf] # Solo gli ultimi pad_clf elementi (in teoria dovrebbe andare bene)
             padded_trace = reversed_trace + ["PAD"] * (pad_clf - len(reversed_trace))
@@ -159,6 +161,23 @@ def generateTraceCond(net, initial_marking, final_marking, check, classifier_dic
                 choice = next((t for t in loops_end if t.name.startswith("end_" + loop_region)), None)
             else:
                 choice = next((t for t in loops_end if t.name.startswith("back_" + loop_region)), None)
+            trace.append(choice.name)
+            current_marking = execute(choice, net, current_marking)
+        elif previous_step.startswith("start_X"):
+            xor_region = previous_step.split("_")[1]
+
+            clf, encoding_clf, pad_clf, class_to_branch = classifier_dict_xor[xor_region]
+
+            reversed_trace = trace[::-1][:pad_clf]  # Solo gli ultimi pad_clf elementi (in teoria dovrebbe andare bene)
+            padded_trace = reversed_trace + ["PAD"] * (pad_clf - len(reversed_trace))
+
+            # Usiamo .get(step, 0) per gestire attività sconosciute o PAD --> NON lo metto perchè NON dovrebbe servire in realtà
+            encoded_trace = [encoding_clf[step] for step in padded_trace]
+
+            pred_class = clf.predict([encoded_trace])[0]
+            branch = class_to_branch[pred_class]
+
+            choice = next((t for t in transitions if t.name.startswith(branch)), None)
             trace.append(choice.name)
             current_marking = execute(choice, net, current_marking)
         else:
@@ -186,6 +205,7 @@ def generateTraceCond(net, initial_marking, final_marking, check, classifier_dic
                     choice = random.choice(list(transitions))
                     trace.append(choice.name)
                     current_marking = execute(choice, net, current_marking)
+        previous_step = choice.name
 
     # Pulisco la traccia
     deletion = start + end + tuple(["back_L"]) # end_L mi serve per la codifica successiva
@@ -209,13 +229,13 @@ class Generator:
                 generateTrace(self.net.net, self.net.initial_marking, self.net.final_marking, ["P", "X", "L"], clean))
         return self.generatedTraces
 
-    def generateTraceCond(self, classifier_dict):
+    def generateTraceCond(self, classifier_dict_loop, classifier_dict_xor):
         self.generatedTraces = []
 
         # Uso un while per assicurarmi di avere esattamente 'num_traces' tracce valide
         while len(self.generatedTraces) < self.num_traces:
             newTrace = generateTraceCond(self.net.net, self.net.initial_marking, self.net.final_marking,
-                                         ["P", "X", "L"], classifier_dict)
+                                         ["P", "X", "L"], classifier_dict_loop, classifier_dict_xor)
 
             if newTrace is not None:
                 self.generatedTraces.append(newTrace)

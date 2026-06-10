@@ -25,6 +25,9 @@ class PetriNetP:
         self.initial_marking = Marking()
         self.final_marking = Marking()
         self.loop_regions = []
+        self.parallel_regions = []
+        self.xor_regions = []
+        self.sequential_regions = []
         self.tasks = []
         self.root = petri_utils.add_place(self.net, "root")
 
@@ -88,6 +91,7 @@ class PetriNetP:
             return [p_start, p_end, counter]
 
         if tree.data == 'sequential':
+            self.sequential_regions.append("S" + str(counter))
             p_start = parent_place
             counter += 1
             for child in tree.children:  # Creo la sottorete di ogni figlio e le collego in maniera sequenziale
@@ -98,6 +102,7 @@ class PetriNetP:
             return [parent_place, p_start, counter]
 
         if tree.data == 'xor':
+            self.xor_regions.append("X" + str(counter))
             start = "start_X" + str(counter)
             inter = "inter_X" + str(counter)
             end = "end_X" + str(counter)
@@ -130,6 +135,7 @@ class PetriNetP:
             return [parent_place, p_end, counter]
 
         if tree.data == 'parallel':
+            self.parallel_regions.append("P" + str(counter))
             start = "start_P" + str(counter)  # Creo start e end per transizioni e place della regione parallela
             end = "end_P" + str(counter)
             t_start = petri_utils.add_transition(net, start, start)
