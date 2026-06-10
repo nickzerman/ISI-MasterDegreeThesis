@@ -21,12 +21,7 @@ data = {
 vocab_size_tasks   = info['vocab_size_tasks']
 vocab_size_regions = info['vocab_size_regions']
 
-FIXED_TASK   = {'max_iters': 1000, 'eval_iters': 100, 'eval_interval': 100}
-FIXED_REGION = {'max_iters': 1000, 'eval_iters': 100, 'eval_interval': 100}
-FIXED_TIME   = {'max_iters': 500, 'eval_iters': 100, 'eval_interval': 100}
-
-
-def objective_task(trial):
+def objective_task(trial, fixed_task):
     config = {
         'block_size': trial.suggest_categorical('block_size', [64, 128, 256]),
         'n_embd':     trial.suggest_categorical('n_embd', [64, 128, 256]),
@@ -36,7 +31,7 @@ def objective_task(trial):
         'lr':         trial.suggest_float('lr', 1e-4, 1e-3, log=True),
         'weight_decay': trial.suggest_float('weight_decay', 1e-4, 1e-1, log=True),
         'batch_size': trial.suggest_categorical('batch_size', [16, 32, 64]),
-        **FIXED_TASK,
+        **fixed_task,
     }
     model = TaskTransformer(
         task_vocab_size=vocab_size_tasks,
@@ -54,7 +49,7 @@ def objective_task(trial):
         torch.cuda.empty_cache()
 
 
-def objective_region(trial):
+def objective_region(trial, fixed_region):
     config = {
         'block_size': trial.suggest_categorical('block_size', [64, 128, 256]),
         'n_embd':     trial.suggest_categorical('n_embd', [64, 128, 256]),
@@ -64,7 +59,7 @@ def objective_region(trial):
         'lr':         trial.suggest_float('lr', 1e-4, 1e-3, log=True),
         'weight_decay': trial.suggest_float('weight_decay', 1e-4, 1e-1, log=True),
         'batch_size': trial.suggest_categorical('batch_size', [16, 32, 64]),
-        **FIXED_REGION,
+        **fixed_region,
     }
     model = RegionTransformer(
         region_vocab_size=vocab_size_regions,
@@ -83,7 +78,7 @@ def objective_region(trial):
         torch.cuda.empty_cache()
 
 
-def objective_time(trial):
+def objective_time(trial, fixed_time):
     config = {
         'block_size': trial.suggest_categorical('block_size', [16, 32, 64, 128]),
         'n_embd':     trial.suggest_categorical('n_embd', [32, 64, 128, 256]),
@@ -93,7 +88,7 @@ def objective_time(trial):
         'lr':         trial.suggest_float('lr', 1e-4, 1e-3, log=True),
         'weight_decay': trial.suggest_float('weight_decay', 1e-4, 1e-1, log=True),
         'batch_size': trial.suggest_categorical('batch_size', [8, 16, 32, 64]),
-        **FIXED_TIME,
+        **fixed_time,
     }
     model = TimeTransformer(
         vocab_size_task=vocab_size_tasks,
@@ -113,7 +108,14 @@ def objective_time(trial):
         torch.cuda.empty_cache()
 
 
-def run(n_trials_task=50, n_trials_region=50, n_trials_time=50):
+def run(n_trials_task=50, n_trials_region=50, n_trials_time=50, fixed_task=None, fixed_region=None, fixed_time=None):
+    if fixed_task is None:
+        fixed_task = {'max_iters': 1000, 'eval_iters': 100, 'eval_interval': 100}
+    if fixed_region is None:
+        fixed_region = {'max_iters': 1000, 'eval_iters': 100, 'eval_interval': 100}
+    if fixed_time is None:
+        fixed_time = {'max_iters': 500, 'eval_iters': 100, 'eval_interval': 100}
+
     pruner = optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=100)
     storage = f'sqlite:///{RESULTS_DIR / "optuna.db"}'
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -123,21 +125,21 @@ def run(n_trials_task=50, n_trials_region=50, n_trials_time=50):
         direction='minimize', pruner=pruner, study_name='v3_task',
         storage=storage, load_if_exists=True,
     )
-    study_task.optimize(objective_task, n_trials=n_trials_task)
+    study_task.optimize(lambda trial: objective_task(trial, fixed_task), n_trials=n_trials_task)
     print(f"[V3 TaskTransformer] Best val_loss: {study_task.best_value:.4f} | Params: {study_task.best_params}")
 
     study_region = optuna.create_study(
         direction='minimize', pruner=pruner, study_name='v3_region',
         storage=storage, load_if_exists=True,
     )
-    study_region.optimize(objective_region, n_trials=n_trials_region)
+    study_region.optimize(lambda trial: objective_region(trial, fixed_region), n_trials=n_trials_region)
     print(f"[V3 RegionTransformer] Best val_loss: {study_region.best_value:.4f} | Params: {study_region.best_params}")
 
     study_time = optuna.create_study(
         direction='minimize', pruner=pruner, study_name='v3_time_separated',
         storage=storage, load_if_exists=True,
     )
-    study_time.optimize(objective_time, n_trials=n_trials_time)
+    study_time.optimize(lambda trial: objective_time(trial, fixed_time), n_trials=n_trials_time)
     print(f"[V3 TimeTransformer] Best val_loss: {study_time.best_value:.4f} | Params: {study_time.best_params}")
 
     torch.save({

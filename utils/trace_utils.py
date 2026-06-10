@@ -95,6 +95,7 @@ def create_distance_matrix(n_traces, traces_encoded, num_regions):
     """
     distance_matrix = np.zeros((n_traces, n_traces))
     for i in range(n_traces):
+        print(i)
         for j in range(i + 1, n_traces):
             cost = edit_distance_weighted_levenshtein(traces_encoded[i], traces_encoded[j], num_regions,num_regions, hamming_distance)  # Utilizziamo la distanza di hamming al momento
             distance_matrix[i][j] = cost

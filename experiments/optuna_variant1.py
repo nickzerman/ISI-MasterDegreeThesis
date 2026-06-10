@@ -19,11 +19,7 @@ data = {
 vocab_size = info['vocab_size_complete']
 
 
-FIXED_TASK = {'max_iters': 1000, 'eval_iters': 100, 'eval_interval': 100}
-FIXED_TIME = {'max_iters': 500, 'eval_iters': 100, 'eval_interval': 100}
-
-
-def objective_task(trial):
+def objective_task(trial, fixed_task):
     config = {
         'block_size': trial.suggest_categorical('block_size', [16, 32, 64, 128, 256, 512]),
         'n_embd':     trial.suggest_categorical('n_embd', [16, 32, 64, 128, 256]),
@@ -33,7 +29,7 @@ def objective_task(trial):
         'lr':         trial.suggest_float('lr', 1e-4, 1e-3, log=True),
         'weight_decay': trial.suggest_float('weight_decay', 1e-4, 1e-1, log=True),
         'batch_size': trial.suggest_categorical('batch_size', [16, 32, 64, 128]),
-        **FIXED_TASK,
+        **fixed_task,
     }
     model = TaskTransformer(
         task_vocab_size=vocab_size,
@@ -51,7 +47,7 @@ def objective_task(trial):
         torch.cuda.empty_cache()
 
 
-def objective_time(trial):
+def objective_time(trial, fixed_time):
     config = {
         'block_size': trial.suggest_categorical('block_size', [16, 32, 64, 128]),
         'n_embd':     trial.suggest_categorical('n_embd', [32, 64, 128, 256]),
@@ -61,7 +57,7 @@ def objective_time(trial):
         'lr':         trial.suggest_float('lr', 1e-4, 1e-3, log=True),
         'weight_decay': trial.suggest_float('weight_decay', 1e-4, 1e-1, log=True),
         'batch_size': trial.suggest_categorical('batch_size', [8, 16, 32, 64]),
-        **FIXED_TIME,
+        **fixed_time,
     }
     model = TimeTransformer(
         vocab_size_task=vocab_size,
@@ -80,7 +76,12 @@ def objective_time(trial):
         torch.cuda.empty_cache()
 
 
-def run(n_trials_task=50,n_trials_time=50):
+def run(n_trials_task=50, n_trials_time=50, fixed_task=None, fixed_time=None):
+    if fixed_task is None:
+        fixed_task = {'max_iters': 1000, 'eval_iters': 100, 'eval_interval': 100}
+    if fixed_time is None:
+        fixed_time = {'max_iters': 500, 'eval_iters': 100, 'eval_interval': 100}
+
     pruner = optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=100)
     storage = f'sqlite:///{RESULTS_DIR / "optuna.db"}'
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -90,14 +91,14 @@ def run(n_trials_task=50,n_trials_time=50):
         direction='minimize', pruner=pruner, study_name='v1_task_complete',
         storage=storage, load_if_exists=True,
     )
-    study_task.optimize(objective_task, n_trials=n_trials_task)
+    study_task.optimize(lambda trial: objective_task(trial, fixed_task), n_trials=n_trials_task)
     print(f"[V1 TaskTransformer] Best val_loss: {study_task.best_value:.4f} | Params: {study_task.best_params}")
 
     study_time = optuna.create_study(
         direction='minimize', pruner=pruner, study_name='v1_time',
         storage=storage, load_if_exists=True,
     )
-    study_time.optimize(objective_time, n_trials=n_trials_time)
+    study_time.optimize(lambda trial: objective_time(trial, fixed_time), n_trials=n_trials_time)
     print(f"[V1 TimeTransformer] Best val_loss: {study_time.best_value:.4f} | Params: {study_time.best_params}")
 
     torch.save({

@@ -26,3 +26,6 @@ env/
 data/prepared_data.pt
 backup/
 /petri_net_output.png
+.env
+results/
+data/*_best_params.pt

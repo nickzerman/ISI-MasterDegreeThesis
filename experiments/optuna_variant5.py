@@ -22,11 +22,7 @@ data = {
 vocab_size_tasks   = info['vocab_size_tasks']
 vocab_size_regions = info['vocab_size_regions']
 
-FIXED_TASK    = {'max_iters': 1000, 'eval_iters': 100, 'eval_interval': 100}
-FIXED_UNIFIED = {'max_iters': 1000, 'eval_iters': 100, 'eval_interval': 100}
-
-
-def objective_task(trial):
+def objective_task(trial, fixed_task):
     config = {
         'block_size': trial.suggest_categorical('block_size', [64, 128, 256]),
         'n_embd':     trial.suggest_categorical('n_embd', [64, 128, 256]),
@@ -36,7 +32,7 @@ def objective_task(trial):
         'lr':         trial.suggest_float('lr', 1e-4, 1e-3, log=True),
         'weight_decay': trial.suggest_float('weight_decay', 1e-4, 1e-1, log=True),
         'batch_size': trial.suggest_categorical('batch_size', [16, 32, 64]),
-        **FIXED_TASK,
+        **fixed_task,
     }
     model = TaskTransformer(
         task_vocab_size=vocab_size_tasks,
@@ -54,7 +50,7 @@ def objective_task(trial):
         torch.cuda.empty_cache()
 
 
-def objective_unified(trial):
+def objective_unified(trial, fixed_unified):
     config = {
         'block_size': trial.suggest_categorical('block_size', [64, 128, 256, 512]),
         'n_embd':     trial.suggest_categorical('n_embd', [64, 128, 256]),
@@ -64,7 +60,7 @@ def objective_unified(trial):
         'lr':         trial.suggest_float('lr', 1e-4, 1e-3, log=True),
         'weight_decay': trial.suggest_float('weight_decay', 1e-4, 1e-1, log=True),
         'batch_size': trial.suggest_categorical('batch_size', [16, 32, 64, 128]),
-        **FIXED_UNIFIED,
+        **fixed_unified,
     }
     model = UnifiedTransformer(
         vocab_size_region=vocab_size_regions,
@@ -85,7 +81,12 @@ def objective_unified(trial):
         torch.cuda.empty_cache()
 
 
-def run(n_trials_task=50, n_trials_unified=50):
+def run(n_trials_task=50, n_trials_unified=50, fixed_task=None, fixed_unified=None):
+    if fixed_task is None:
+        fixed_task = {'max_iters': 1000, 'eval_iters': 100, 'eval_interval': 100}
+    if fixed_unified is None:
+        fixed_unified = {'max_iters': 1000, 'eval_iters': 100, 'eval_interval': 100}
+
     pruner = optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=100)
     storage = f'sqlite:///{RESULTS_DIR / "optuna.db"}'
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -95,14 +96,14 @@ def run(n_trials_task=50, n_trials_unified=50):
         direction='minimize', pruner=pruner, study_name='v5_task',
         storage=storage, load_if_exists=True,
     )
-    study_task.optimize(objective_task, n_trials=n_trials_task)
+    study_task.optimize(lambda trial: objective_task(trial, fixed_task), n_trials=n_trials_task)
     print(f"[V5 TaskTransformer] Best val_loss: {study_task.best_value:.4f} | Params: {study_task.best_params}")
 
     study_unified = optuna.create_study(
         direction='minimize', pruner=pruner, study_name='v5_unified_onlyregion',
         storage=storage, load_if_exists=True,
     )
-    study_unified.optimize(objective_unified, n_trials=n_trials_unified)
+    study_unified.optimize(lambda trial: objective_unified(trial, fixed_unified), n_trials=n_trials_unified)
     print(f"[V5 UnifiedTransformer] Best val_loss: {study_unified.best_value:.4f} | Params: {study_unified.best_params}")
 
     torch.save({
