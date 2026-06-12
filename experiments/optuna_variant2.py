@@ -7,85 +7,85 @@ from core.models import TaskTransformer, TimeTransformer
 from core.training import train_task_separated, train_time_v2
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
-info = torch.load(DATA_DIR / 'prepared_data.pt', map_location=device, weights_only=False)
-n = info['n']
-data = {
-    'train_tasks':   info['data_tasks'][:n],
-    'val_tasks':     info['data_tasks'][n:],
-    'train_regions': info['data_regions'][:n],
-    'val_regions':   info['data_regions'][n:],
-    'train_times':   info['data_times'][:n],
-    'val_times':     info['data_times'][n:],
-}
-vocab_size_tasks   = info['vocab_size_tasks']
-vocab_size_regions = info['vocab_size_regions']
-
-def objective_task(trial, fixed_task):
-    config = {
-        'block_size': trial.suggest_categorical('block_size', [64, 128, 256, 512]),
-        'n_embd':     trial.suggest_categorical('n_embd', [64, 128, 256]),
-        'n_head':     trial.suggest_categorical('n_head', [2, 4, 8]),
-        'n_layer':    trial.suggest_categorical('n_layer', [1, 2, 4, 8]),
-        'dropout':    trial.suggest_float('dropout', 0.2, 0.4),
-        'lr':         trial.suggest_float('lr', 1e-4, 1e-3, log=True),
-        'weight_decay': trial.suggest_float('weight_decay', 1e-4, 1e-1, log=True),
-        'batch_size': trial.suggest_categorical('batch_size', [16, 32, 64, 128]),
-        **fixed_task,
-    }
-    model = TaskTransformer(
-        task_vocab_size=vocab_size_tasks,
-        region_vocab_size=vocab_size_regions,
-        block_size=config['block_size'],
-        n_embd=config['n_embd'],
-        dropout=config['dropout'],
-        n_head=config['n_head'],
-        n_layer=config['n_layer'],
-        separated=True,
-    ).to(device)
-    try:
-        return train_task_separated(model, data, config, device, trial=trial)
-    finally:
-        del model
-        gc.collect()
-        torch.cuda.empty_cache()
+DATA_FILE = DATA_DIR / 'prepared_data.pt'
 
 
-def objective_time(trial, fixed_time):
-    config = {
-        'block_size': trial.suggest_categorical('block_size', [16, 32, 64, 128]),
-        'n_embd':     trial.suggest_categorical('n_embd', [32, 64, 128, 256]),
-        'n_head':     trial.suggest_categorical('n_head', [2, 4, 8]),
-        'n_layer':    trial.suggest_categorical('n_layer', [1, 2, 4]),
-        'dropout':    trial.suggest_float('dropout', 0.1, 0.4),
-        'lr':         trial.suggest_float('lr', 1e-4, 1e-3, log=True),
-        'weight_decay': trial.suggest_float('weight_decay', 1e-4, 1e-1, log=True),
-        'batch_size': trial.suggest_categorical('batch_size', [8, 16, 32, 64]),
-        **fixed_time,
-    }
-    model = TimeTransformer(
-        vocab_size_task=vocab_size_tasks,
-        vocab_size_region=vocab_size_regions,
-        block_size=config['block_size'],
-        n_embd=config['n_embd'],
-        dropout=config['dropout'],
-        n_head=config['n_head'],
-        n_layer=config['n_layer'],
-        separated_regions=True,
-    ).to(device)
-    try:
-        return train_time_v2(model, data, config, device, trial=trial)
-    finally:
-        del model
-        gc.collect()
-        torch.cuda.empty_cache()
-
-
-def run(n_trials_task=50, n_trials_time=50, fixed_task=None, fixed_time=None):
+def run(n_trials_task=50, n_trials_time=50, fixed_task=None, fixed_time=None, data_file=None):
     if fixed_task is None:
         fixed_task = {'max_iters': 1000, 'eval_iters': 100, 'eval_interval': 100}
     if fixed_time is None:
         fixed_time = {'max_iters': 500, 'eval_iters': 100, 'eval_interval': 100}
+
+    info = torch.load(DATA_DIR / data_file if data_file else DATA_FILE, map_location=device, weights_only=False)
+    n = info['n']
+    data = {
+        'train_tasks':   info['data_tasks'][:n],
+        'val_tasks':     info['data_tasks'][n:],
+        'train_regions': info['data_regions'][:n],
+        'val_regions':   info['data_regions'][n:],
+        'train_times':   info['data_times'][:n],
+        'val_times':     info['data_times'][n:],
+    }
+    vocab_size_tasks   = info['vocab_size_tasks']
+    vocab_size_regions = info['vocab_size_regions']
+
+    def objective_task(trial, fixed_task):
+        config = {
+            'block_size': trial.suggest_categorical('block_size', [64, 128, 256, 512]),
+            'n_embd':     trial.suggest_categorical('n_embd', [64, 128, 256]),
+            'n_head':     trial.suggest_categorical('n_head', [2, 4, 8]),
+            'n_layer':    trial.suggest_categorical('n_layer', [1, 2, 4, 8]),
+            'dropout':    trial.suggest_float('dropout', 0.2, 0.4),
+            'lr':         trial.suggest_float('lr', 1e-4, 1e-3, log=True),
+            'weight_decay': trial.suggest_float('weight_decay', 1e-4, 1e-1, log=True),
+            'batch_size': trial.suggest_categorical('batch_size', [16, 32, 64, 128]),
+            **fixed_task,
+        }
+        model = TaskTransformer(
+            task_vocab_size=vocab_size_tasks,
+            region_vocab_size=vocab_size_regions,
+            block_size=config['block_size'],
+            n_embd=config['n_embd'],
+            dropout=config['dropout'],
+            n_head=config['n_head'],
+            n_layer=config['n_layer'],
+            separated=True,
+        ).to(device)
+        try:
+            return train_task_separated(model, data, config, device, trial=trial)
+        finally:
+            del model
+            gc.collect()
+            torch.cuda.empty_cache()
+
+    def objective_time(trial, fixed_time):
+        config = {
+            'block_size': trial.suggest_categorical('block_size', [16, 32, 64, 128]),
+            'n_embd':     trial.suggest_categorical('n_embd', [32, 64, 128, 256]),
+            'n_head':     trial.suggest_categorical('n_head', [2, 4, 8]),
+            'n_layer':    trial.suggest_categorical('n_layer', [1, 2, 4]),
+            'dropout':    trial.suggest_float('dropout', 0.1, 0.4),
+            'lr':         trial.suggest_float('lr', 1e-4, 1e-3, log=True),
+            'weight_decay': trial.suggest_float('weight_decay', 1e-4, 1e-1, log=True),
+            'batch_size': trial.suggest_categorical('batch_size', [8, 16, 32, 64]),
+            **fixed_time,
+        }
+        model = TimeTransformer(
+            vocab_size_task=vocab_size_tasks,
+            vocab_size_region=vocab_size_regions,
+            block_size=config['block_size'],
+            n_embd=config['n_embd'],
+            dropout=config['dropout'],
+            n_head=config['n_head'],
+            n_layer=config['n_layer'],
+            separated_regions=True,
+        ).to(device)
+        try:
+            return train_time_v2(model, data, config, device, trial=trial)
+        finally:
+            del model
+            gc.collect()
+            torch.cuda.empty_cache()
 
     pruner = optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=100)
     storage = f'sqlite:///{RESULTS_DIR / "optuna.db"}'

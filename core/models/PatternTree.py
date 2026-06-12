@@ -117,6 +117,45 @@ class TracePatternMiner:
 
         return partitions
 
+    def create_real_time_map(self, partitions, task, traces, times_list, window=5):
+        """
+        Builds a times_map using the mean of real (log-normalized) delta times
+        for each partition, instead of synthetic exponential values.
+
+        Parameters
+        ----------
+        partitions  : output of select_patterns
+        task        : the task step we are computing times for (e.g. 'start_T1')
+        traces      : list of decoded traces (real or generated)
+        times_list  : parallel list of per-step delta times (same length as each trace)
+        window      : lookback window, must match the one used in assign_time
+
+        Returns
+        -------
+        times_map : {partition_key -> mean_real_delta}
+        """
+        partition_times = {key: [] for key in partitions}
+
+        for trace, times in zip(traces, times_list):
+            for idx, step in enumerate(trace):
+                if step != task:
+                    continue
+                delta_real = times[idx]
+                prefix_reversed = list(reversed(trace[:idx]))[-window:]
+
+                matched = 'RESIDUALS'
+                for length in range(len(prefix_reversed), 0, -1):
+                    path = '-' + '-'.join(prefix_reversed[:length])
+                    if path in partitions:
+                        matched = path
+                        break
+                partition_times[matched].append(delta_real)
+
+        return {
+            key: (sum(vals) / len(vals) if vals else 0.01)
+            for key, vals in partition_times.items()
+        }
+
     def create_normalized_time_map(self, partitions):
         """
 

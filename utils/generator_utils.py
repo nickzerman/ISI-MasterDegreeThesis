@@ -1,4 +1,5 @@
 import pandas as pd
+from lark import Tree
 
 def get_decoding(traces, regions, tasks):
     """
@@ -154,3 +155,38 @@ def get_encoding(traces, regions, tasks, open_clauses, end_clauses):
     df_tasks = pd.DataFrame(traceEncoded_tasks).T
 
     return df_regions, df_tasks
+
+
+def compute_process_complexity(tree):
+    """
+    Returns (nested, parallel):
+    - nested:   max depth of XOR/loop nesting (one inside another)
+    - parallel: max total XOR/loop decisions concurrent across parallel branches
+    """
+    if tree.data == 'xor':
+        n, p = 0, 0
+        for child in tree.children:
+            nc, pc = compute_process_complexity(child)
+            if nc > n: n=nc
+            if pc > p: p=pc
+        return 1 + n, p
+    elif tree.data == 'loop':
+        child = tree.children[0]
+        n, p = compute_process_complexity(child)
+        return 1 + n, p
+    elif tree.data == 'parallel':
+        n, p = 0, 0
+        for child in tree.children:
+            nc, pc = compute_process_complexity(child)
+            if nc > n: n = nc
+            p += pc
+        return n, p
+    elif tree.data == 'sequential':
+        n, p = 0, 0
+        for child in tree.children:
+            nc, pc = compute_process_complexity(child)
+            if nc > n: n = nc
+            if pc > p: p = pc
+        return n, p
+    else: # siamo nel task
+        return 0, 1

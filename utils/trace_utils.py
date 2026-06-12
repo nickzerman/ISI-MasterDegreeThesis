@@ -1,5 +1,7 @@
 import numpy as np
 import random
+import os
+from joblib import Parallel, delayed
 
 def hamming_distance(t1, t2):
     return sum(a != b for a, b in zip(t1, t2))
@@ -78,26 +80,55 @@ def getall_traces(num_regions, df_traces):
 
     return all_traces
 
-def create_distance_matrix(n_traces, traces_encoded, num_regions):
+def compute_row(i, trace_i, traces_tail, num_regions):
     """
-    Returns the distance matrix between traces
+    Returns a list of all traces
+
+    Parameters
+    ----------
+    i: rif trace's idx
+    trace_i: idx's trace
+    traces_tail: traces after trace i
+    num_regions: num_regions + num_tasks
+
+    Returns
+    ----------
+    i: index
+    costs: distance between trace i and traces_tail (taken singularly)
+
+    """
+    costs = []
+    for trace_j in traces_tail:
+        cost = edit_distance_weighted_levenshtein(trace_i, trace_j, num_regions, num_regions, hamming_distance)
+        costs.append(cost)
+    return i, costs
+
+def create_distance_matrix(n_traces, traces_encoded, num_regions, n_workers=1):
+    """
+    Returns the distance matrix between traces (parallelized over rows).
 
     Parameters
     ----------
     n_traces
     traces_encoded
     num_regions: num_regions + num_tasks
+    n_workers: number of parallel workers (-1 = all CPUs)
 
     Returns
     ----------
-    distance_matrix: all traces separated
-
+    distance_matrix
     """
     distance_matrix = np.zeros((n_traces, n_traces))
-    for i in range(n_traces):
-        print(i)
-        for j in range(i + 1, n_traces):
-            cost = edit_distance_weighted_levenshtein(traces_encoded[i], traces_encoded[j], num_regions,num_regions, hamming_distance)  # Utilizziamo la distanza di hamming al momento
+
+    # Results è una lista di (i, costs[]) per ogni riga i
+    results = Parallel(n_jobs=n_workers, verbose=1)(
+        delayed(compute_row)(i, traces_encoded[i], traces_encoded[i + 1:], num_regions) # produce un oggetto che rappresenta la serie di chiamate alla funzione compute_row
+        for i in range(n_traces)
+    )
+
+    for i, costs in results:
+        for k, cost in enumerate(costs):
+            j = i + 1 + k
             distance_matrix[i][j] = cost
             distance_matrix[j][i] = cost
 

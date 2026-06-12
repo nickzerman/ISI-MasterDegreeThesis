@@ -31,7 +31,7 @@ def removeEndLoop(trace):
     return [step for step in trace if not step.startswith("end_L")]
 
 
-def generateTrace(net, initial_marking, final_marking, check, clean):
+def generateTrace(net, initial_marking, final_marking, check, clean, no_interval):
     """
         Generate a trace of Petri Net.
         First all end_R/P, then all start_R/P if they're from a place with only 1 output arc, else choose randomly from all the enabled transitions.
@@ -50,6 +50,8 @@ def generateTrace(net, initial_marking, final_marking, check, clean):
             list of char like 'P' and 'X', we use them to consume start and end region when we can
         clean
             clean flag --> if yes trace will be cleand with check else none
+        no_interval
+            if True once we start a task we end it immediately
 
         Returns
         ----------
@@ -61,9 +63,21 @@ def generateTrace(net, initial_marking, final_marking, check, clean):
     start = tuple(["start_" + c for c in check])
     end = tuple(["end_" + c for c in check if c!="L"]) # si escludono gli end loop
     loop = tuple(["end_L"]) + tuple(["back_L"])
+    previous_step = ""
 
     while current_marking != final_marking:  # Fino a quando il marking non corrisponde al finale, quindi fino a quando non ho finito di generare la traccia
         transitions = enabled_transitions(net,current_marking)  # Lista delle possibili transizioni possibili al current marking
+
+        print(transitions)
+        print(previous_step)
+
+        if no_interval and len(previous_step.split("_")) > 1 and previous_step.split("_")[1][0]=="T" and previous_step.split("_")[0]!="end":
+            step = previous_step.split("_")[1]
+            choice = next((t for t in transitions if t.name.startswith("end_" + step)), None)
+            trace.append(choice.name)
+            current_marking = execute(choice, net, current_marking)
+            previous_step = choice.name
+            continue
 
         loops_end = [item for item in transitions if item.name.startswith(loop)]
         if loops_end:
@@ -95,6 +109,7 @@ def generateTrace(net, initial_marking, final_marking, check, clean):
                     choice = random.choice(list(transitions))
                     trace.append(choice.name)
                     current_marking = execute(choice, net, current_marking)
+        previous_step = choice.name
 
     if clean:
         deletion = start + end + tuple(["start_X"]) # back_L ed end_L mi servono per fare il decision tree (end_L anche successivamente per fare la codifica in bit)
@@ -107,7 +122,7 @@ def generateTrace(net, initial_marking, final_marking, check, clean):
 
     return trace
 
-def generateTraceCond(net, initial_marking, final_marking, check, classifier_dict_loop, classifier_dict_xor, limit=100):
+def generateTraceCond(net, initial_marking, final_marking, check, classifier_dict_loop, classifier_dict_xor, limit, no_interval):
     """
         Generate a trace of Petri Net with decision tree on LOOP region.
 
@@ -125,6 +140,9 @@ def generateTraceCond(net, initial_marking, final_marking, check, classifier_dic
             dict of list value ("loop_region" : {"model": clf1, "encoding": enc1, "pad": 10} ...)
         classifier_dict_xor
             dict of list value ("xor_region" : {"model": clf1, "encoding": enc1, "pad": 10} ...)
+        no_interval
+            if True once we start a task we end it immediately
+
         Returns
         ----------
         trace
@@ -143,6 +161,14 @@ def generateTraceCond(net, initial_marking, final_marking, check, classifier_dic
             return None
 
         transitions = enabled_transitions(net,current_marking)  # Lista delle possibili transizioni possibili al current marking
+
+        if no_interval and len(previous_step.split("_")) > 1 and previous_step.split("_")[1][0]=="T" and previous_step.split("_")[0]!="end":
+            step = previous_step.split("_")[1]
+            choice = next((t for t in transitions if t.name.startswith("end_" + step)), None)
+            trace.append(choice.name)
+            current_marking = execute(choice, net, current_marking)
+            previous_step = choice.name
+            continue
 
         loops_end = [item for item in transitions if item.name.startswith(loop)] # Se sono alla fine di un loop
         if loops_end:
@@ -237,20 +263,20 @@ class Generator:
         self.net = net
         self.generatedTraces = []
 
-    def generateTrace(self, clean):
+    def generateTrace(self, clean, no_interval=False):
         self.generatedTraces = []
         for i in range(self.num_traces):
             self.generatedTraces.append(
-                generateTrace(self.net.net, self.net.initial_marking, self.net.final_marking, ["P", "X", "L"], clean))
+                generateTrace(self.net.net, self.net.initial_marking, self.net.final_marking, ["P", "X", "L"], clean, no_interval))
         return self.generatedTraces
 
-    def generateTraceCond(self, classifier_dict_loop, classifier_dict_xor):
+    def generateTraceCond(self, classifier_dict_loop, classifier_dict_xor, limit=100, no_interval=False):
         self.generatedTraces = []
 
         # Uso un while per assicurarmi di avere esattamente 'num_traces' tracce valide
         while len(self.generatedTraces) < self.num_traces:
             newTrace = generateTraceCond(self.net.net, self.net.initial_marking, self.net.final_marking,
-                                         ["P", "X", "L"], classifier_dict_loop, classifier_dict_xor)
+                                         ["P", "X", "L"], classifier_dict_loop, classifier_dict_xor, limit, no_interval)
 
             if newTrace is not None:
                 self.generatedTraces.append(newTrace)
