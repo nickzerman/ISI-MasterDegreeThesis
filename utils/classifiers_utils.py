@@ -45,17 +45,23 @@ def create_loop_data(loop, traces):
 
     return x_processed, y, dict_loop_step_encoding, max_len
 
-def create_xor_data(xor, traces):
+def create_xor_data(xor, traces, net):
     """
     Create the dataset for XOR region using traces (multiclass).
 
     For each occurrence of start_X{n} in a trace, the prefix before it is x
-    and the immediately following transition (first step of the chosen branch) determines y.
+    and the first transition belonging directly to the XOR branch determines y.
+
+    Note: trace[i+1] is NOT safe to use because pm4py alignment can interleave
+    transitions from active parallel siblings between start_X and the actual
+    XOR branch transition. We scan forward for the first transition with an arc
+    from p_start of this XOR (identified via the Petri net structure).
 
     Parameters
     ----------
     xor: xor label/name (e.g., "X0")
-    traces: list of traces with XOR markers (generated with clean=False)
+    traces: list of traces with XOR markers
+    net: PetriNet object, used to identify the direct branch transitions of this XOR
 
     Returns
     ----------
@@ -69,11 +75,21 @@ def create_xor_data(xor, traces):
     y = []
     xor_start = "start_" + xor  # e.g., "start_X0"
 
+    # Nomi delle transizioni direttamente collegate a p_start di questo XOR.
+    # Sono i veri "primo passo" di ogni branch dello XOR.
+    xor_branch_names = {t.name for t in net.transitions
+                        if any(arc.source.name == xor_start for arc in t.in_arcs)}
+
     for trace in traces:
         for i, element in enumerate(trace):
             if element == xor_start:
+                # Scansiona in avanti per trovare il primo step che è un branch diretto
+                # di questo XOR, saltando eventuali transizioni di paralleli interlacciati.
+                branch_step = next((step for step in trace[i+1:] if step in xor_branch_names), None)
+                if branch_step is None:
+                    continue  # Nessun branch trovato, salta questo campione
                 x.append(trace[:i])
-                y.append(trace[i+1])
+                y.append(branch_step)
 
     if not x:
         return None
@@ -100,6 +116,7 @@ def create_xor_data(xor, traces):
         x_processed.append(encoded_trace)
 
     return x_processed, y, dict_xor_step_encoding, max_len, class_to_branch
+
 
 def create_task_data(task, traces_balanced_decoded, trace_times_list, dict_task_step_encoding):
     """

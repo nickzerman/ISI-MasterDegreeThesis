@@ -68,9 +68,6 @@ def generateTrace(net, initial_marking, final_marking, check, clean, no_interval
     while current_marking != final_marking:  # Fino a quando il marking non corrisponde al finale, quindi fino a quando non ho finito di generare la traccia
         transitions = enabled_transitions(net,current_marking)  # Lista delle possibili transizioni possibili al current marking
 
-        print(transitions)
-        print(previous_step)
-
         if no_interval and len(previous_step.split("_")) > 1 and previous_step.split("_")[1][0]=="T" and previous_step.split("_")[0]!="end":
             step = previous_step.split("_")[1]
             choice = next((t for t in transitions if t.name.startswith("end_" + step)), None)
@@ -82,6 +79,17 @@ def generateTrace(net, initial_marking, final_marking, check, clean, no_interval
         loops_end = [item for item in transitions if item.name.startswith(loop)]
         if loops_end:
             choice = random.choice(loops_end)
+            trace.append(choice.name)
+            current_marking = execute(choice, net, current_marking)
+        elif previous_step.startswith("start_X"):
+            # Dopo uno start_X scelgo solo tra i branch diretti di quello XOR.
+            # Senza questo filtro, in presenza di paralleli attivi, potrei pescare
+            # transizioni di altri branch (out of context per questo XOR).
+            xor_region = previous_step.split("_")[1]
+            xor_transitions = [t for t in transitions
+                                if any(arc.source.name == "start_" + xor_region
+                                       for arc in t.in_arcs)]
+            choice = random.choice(xor_transitions)
             trace.append(choice.name)
             current_marking = execute(choice, net, current_marking)
         else:
@@ -183,10 +191,15 @@ def generateTraceCond(net, initial_marking, final_marking, check, classifier_dic
                 reversed_trace = trace[::-1][:pad_clf] # Solo gli ultimi pad_clf elementi (in teoria dovrebbe andare bene)
                 padded_trace = reversed_trace + ["PAD"] * (pad_clf - len(reversed_trace))
 
-                # Usiamo .get(step, 0) per gestire attività sconosciute o PAD --> NON lo metto perchè NON dovrebbe servire in realtà
-                encoded_trace = [encoding_clf[step] for step in padded_trace]
-
-                pred_class = clf.predict([encoded_trace])[0]
+                # Se il contesto contiene token mai visti in training (OOD), non possiamo codificare.
+                # Fallback: usa predict_proba su vettore neutro (distribuzione marginale del classificatore)
+                # e campiona da essa, come già fatto per gli XOR a depth 0.
+                if any(step not in encoding_clf for step in padded_trace):
+                    proba = clf.predict_proba([[0] * pad_clf])[0]
+                    pred_class = random.choices(clf.classes_, weights=proba, k=1)[0]
+                else:
+                    encoded_trace = [encoding_clf[step] for step in padded_trace]
+                    pred_class = clf.predict([encoded_trace])[0]
 
                 if pred_class == 1:
                     choice = next((t for t in loops_end if t.name.startswith("end_" + loop_region)), None)
@@ -202,20 +215,24 @@ def generateTraceCond(net, initial_marking, final_marking, check, classifier_dic
                 choice = random.choice(list(transitions))
             else:
                 clf, encoding_clf, pad_clf, class_to_branch = classifier_dict_xor[xor_region]
-
+                
                 if clf.get_depth() == 0: # Se non ho split (evito di chiudere la porta in faccia ad una parte di processo)
                     proba = clf.predict_proba([[0] * pad_clf])[0] # Prendo le probabilità
                     pred_class = random.choices(clf.classes_, weights=proba, k=1)[0] # E tiro a caso con quelle probabilità
                     branch = class_to_branch[pred_class]
                     choice = next((t for t in transitions if t.name.startswith(branch)), None)
-                else: # Altrimenti guardo la predizione del classificato
-                    reversed_trace = trace[:-1][::-1][:pad_clf]  # Solo gli ultimi pad_clf elementi (in teoria dovrebbe andare bene, taglio anche l'ultimo step perchè coincide con lo start dello xor)
+                else: # Altrimenti guardo la predizione del classificatore
+                    reversed_trace = trace[:-1][::-1][:pad_clf]  # Taglio l'ultimo step (= start_X)
                     padded_trace = reversed_trace + ["PAD"] * (pad_clf - len(reversed_trace))
 
-                    # Usiamo .get(step, 0) per gestire attività sconosciute o PAD --> NON lo metto perchè NON dovrebbe servire in realtà
-                    encoded_trace = [encoding_clf[step] for step in padded_trace]
+                    # Fallback OOD: stessa logica del loop classifier
+                    if any(step not in encoding_clf for step in padded_trace):
+                        proba = clf.predict_proba([[0] * pad_clf])[0]
+                        pred_class = random.choices(clf.classes_, weights=proba, k=1)[0]
+                    else:
+                        encoded_trace = [encoding_clf[step] for step in padded_trace]
+                        pred_class = clf.predict([encoded_trace])[0]
 
-                    pred_class = clf.predict([encoded_trace])[0]
                     branch = class_to_branch[pred_class]
                     choice = next((t for t in transitions if t.name.startswith(branch)), None)
 

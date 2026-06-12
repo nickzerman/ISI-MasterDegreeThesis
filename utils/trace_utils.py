@@ -6,6 +6,21 @@ from joblib import Parallel, delayed
 def hamming_distance(t1, t2):
     return sum(a != b for a, b in zip(t1, t2))
 
+def clean_trace(trace):
+    check = ["P", "X", "L"]
+
+    start = tuple(["start_" + c for c in check])
+    end = tuple(["end_" + c for c in check if c!="L"]) # si escludono gli end loop
+
+    # Pulisco la traccia
+    deletion = start + end
+    trace_cleaned = []
+    for t in trace:
+        if not (t.startswith(deletion)):
+            trace_cleaned.append(t)
+
+    return trace_cleaned
+
 def edit_distance_weighted_levenshtein(s1, s2, cost_ins, cost_del, cost_fn):
     """
     Calcola la distanza di Levenshtein pesata tra due tracce
