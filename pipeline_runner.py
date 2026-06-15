@@ -31,8 +31,8 @@ from lark import Tree, Token
 BASE_DIR    = Path(__file__).parent
 RESULTS_DIR = BASE_DIR / "results"
 
-BOT_TOKEN = "8910437774:AAHqyzkmTRtet_2ktDeJ-oJPbEbfPBYHPv8"
-CHAT_ID   = "654952374"
+BOT_TOKEN = ""
+CHAT_ID   = ""
 
 # ---------------------------------------------------------------------------
 # 24 processi.
