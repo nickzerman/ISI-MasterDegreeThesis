@@ -67,8 +67,6 @@ class TracePatternMiner:
             }
         }
 
-        print(partitions)
-
         step = 0
         while step < k-1: # Se k=2, una partizione di base la ho già, devo trovare solamente il modo di splittarlo diciamo
             check_partitions = {key: values for key, values in partitions.items() if len(values["nodes"]) > 0}
@@ -112,8 +110,8 @@ class TracePatternMiner:
             step += 1
 
 
-        for key,value in partitions.items():
-            print(f"Partizione: {key} | Tracce coperte: {value['numTraces']}")
+        '''for key,value in partitions.items():
+            print(f"Partizione: {key} | Tracce coperte: {value['numTraces']}")'''
 
         return partitions
 

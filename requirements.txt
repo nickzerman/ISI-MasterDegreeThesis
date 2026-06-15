@@ -11,3 +11,6 @@ pydot==4.0.1
 Pillow==12.1.1
 jupyter
 ipykernel
+papermill
+nbformat
+requests

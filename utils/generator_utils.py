@@ -173,7 +173,7 @@ def compute_process_complexity(tree):
     elif tree.data == 'loop':
         child = tree.children[0]
         n, p = compute_process_complexity(child)
-        return 1 + n, p
+        return 1 + n if child.data!='loop' else n, p
     elif tree.data == 'parallel':
         n, p = 0, 0
         for child in tree.children:
