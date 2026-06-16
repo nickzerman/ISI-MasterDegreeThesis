@@ -664,21 +664,15 @@ def main(stop_on_error: bool = False):
             )
             watch_t.start()
 
-            ok, optuna_out = run_notebook(pname, OPTUNA_STEP, proc_dir)
+            ok, _ = run_notebook(pname, OPTUNA_STEP, proc_dir)
 
             stop_ev.set()
             watch_t.join(timeout=5)
             _tg_delete(tmp_optuna)
             OPTUNA_PROGRESS_FILE.unlink(missing_ok=True)
 
-            if ok:
-                _tg_send(
-                    f"✅ <b>[{pname}] Optuna completato</b>\n\n<pre>{html.escape(optuna_out)}</pre>"
-                    if optuna_out else
-                    f"✅ <b>[{pname}] Optuna completato</b>"
-                )
-            else:
-                _tg_send(f"❌ <b>[{pname}] Optuna ERRORE</b>\n\n<pre>{html.escape(optuna_out[-800:])}</pre>")
+            if not ok:
+                _tg_send(f"❌ <b>[{pname}] Optuna ERRORE</b>")
 
             proc_results.append({"step": OPTUNA_STEP.name, "success": ok})
             if not ok and stop_on_error:
