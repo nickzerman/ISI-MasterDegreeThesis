@@ -177,7 +177,6 @@ def get_processes():
             Tree('loop', [Tree('xor', [Tree('loop', [Tree('xor', [Tree('task', [Token('NAME', 'T1')]), Tree('task', [Token('NAME', 'T2')])])]), Tree('task', [Token('NAME', 'T3')]), Tree('loop', [Tree('task', [Token('NAME', 'T4')])]), Tree('loop', [Tree('xor', [Tree('loop', [Tree('task', [Token('NAME', 'T5')])]), Tree('loop', [Tree('task', [Token('NAME', 'T6')])]), Tree('task', [Token('NAME', 'T7')]), Tree('task', [Token('NAME', 'T8')]), Tree('task', [Token('NAME', 'T9')]), Tree('task', [Token('NAME', 'T10')])])])])]),
             Tree('task', [Token('NAME', 'T11')]), Tree('task', [Token('NAME', 'T12')])
         ])]),
-        Tree('task', [Token('NAME', 'T11')]), Tree('task', [Token('NAME', 'T12')]),
     ])
 
     LOOP_PAR_9 = Tree('loop', [
@@ -274,7 +273,7 @@ def get_processes():
     processes += [
         {"name": "ps_c5_5k", "tree": PAR_SEQ_5, "args": _base(5000, no_xor=True, no_loop=True)},
     ]
-    for n, ntpc_val in [(5000, _ntpc(5000)), (15000, _ntpc(15000))]:
+    for n, ntpc_val in [(15000, _ntpc(15000)), (50000, _ntpc(50000))]:
         for clust, nc in [(True, None), (False, ntpc_val)]:
             for intv, ni in [("interval", False), ("nointerval", True)]:
                 name = f"ps_c11_{n//1000}k_{'nocluster' if clust else 'cluster'}_{intv}"
@@ -292,7 +291,7 @@ def get_processes():
             name = f"xps_c9_{n//1000}k_{'nocluster' if clust else 'cluster'}"
             processes.append({"name": name, "tree": XOR_PAR_SEQ_9, "args": _base(n, no_xor=True, no_loop=True, no_cluster=clust, ntpc=nc)})
 
-    for n, ntpc_val in [(5000, _ntpc(5000)), (15000, _ntpc(15000))]:
+    for n, ntpc_val in [(15000, _ntpc(15000)), (50000, _ntpc(50000))]:
         for clust, nc in [(True, None), (False, ntpc_val)]:
             for intv, ni in [("interval", False), ("nointerval", True)]:
                 for cov_name, kw in [("cov0", dict(no_xor=True, no_loop=True)), ("cov05", dict(no_loop=True, coverage=0.5)), ("cov1", dict(no_loop=True, coverage=1.0))]:
