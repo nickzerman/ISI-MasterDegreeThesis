@@ -348,6 +348,9 @@ def main(args):
     '''print(f"data_complete={data_complete.shape}, data_regions={data_regions.shape}, "
           f"data_tasks={data_tasks.shape}, data_times={data_times.shape}")'''
 
+    # --- Lunghezza massima delle tracce (usata da Optuna per lo spazio di ricerca adattivo) ---
+    max_trace_len = max(len(t) for t in traces_balanced_decoded) if traces_balanced_decoded else 0
+
     # --- Salvataggio ---
     torch.save({
         "data_complete":           data_complete,
@@ -360,6 +363,7 @@ def main(args):
         "vocab_size_tasks":        vocab_size_tasks,
         "num_regions":             num_regions,
         "num_tasks":               num_tasks,
+        "max_trace_len":           max_trace_len,
         "bit_to_id_complete":      bit_to_id_complete,
         "id_to_bit_complete":      id_to_bit_complete,
         "bit_to_id_regions":       bit_to_id_regions,

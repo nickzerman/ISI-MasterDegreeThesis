@@ -14,6 +14,7 @@ Uso:
 """
 
 import sys
+import os
 import time
 import json
 import pickle
@@ -31,8 +32,8 @@ from lark import Tree, Token
 BASE_DIR    = Path(__file__).parent
 RESULTS_DIR = BASE_DIR / "results"
 
-BOT_TOKEN = ""
-CHAT_ID   = ""
+BOT_TOKEN = "8910437774:AAHqyzkmTRtet_2ktDeJ-oJPbEbfPBYHPv8"
+CHAT_ID   = "654952374"
 
 # ---------------------------------------------------------------------------
 # 24 processi.
@@ -450,6 +451,11 @@ def run_script(name: str, script_path: Path, extra_args: list) -> tuple[bool, st
     t0 = time.time()
 
     output_lines: list[str] = []
+    
+    # Replica il comportamento di PyCharm: aggiunge la root al PYTHONPATH
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(BASE_DIR)
+    
     try:
         proc = subprocess.Popen(
             cmd,
@@ -457,6 +463,7 @@ def run_script(name: str, script_path: Path, extra_args: list) -> tuple[bool, st
             stderr=subprocess.STDOUT,
             text=True,
             cwd=str(BASE_DIR),
+            env=env
         )
         for line in proc.stdout:
             line = line.rstrip()

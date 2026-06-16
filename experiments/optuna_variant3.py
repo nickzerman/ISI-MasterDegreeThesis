@@ -5,6 +5,7 @@ import optuna
 from config import DATA_DIR, RESULTS_DIR
 from core.models import TaskTransformer, RegionTransformer, TimeTransformer
 from core.training import train_task, train_region, train_time_v2
+from utils import get_optuna_search_space, get_fixed_params
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 DATA_FILE = DATA_DIR / 'prepared_data.pt'
@@ -30,17 +31,25 @@ def run(n_trials_task=50, n_trials_region=50, n_trials_time=50, fixed_task=None,
     }
     vocab_size_tasks   = info['vocab_size_tasks']
     vocab_size_regions = info['vocab_size_regions']
+    max_len = info.get('max_trace_len', 64)
+    if fixed_task is None:
+        fixed_task = get_fixed_params(max_len, model_type='task')
+    if fixed_region is None:
+        fixed_region = get_fixed_params(max_len, model_type='region')
+    if fixed_time is None:
+        fixed_time = get_fixed_params(max_len, model_type='time')
 
     def objective_task(trial, fixed_task):
+        sp = get_optuna_search_space(max_len, model_type='task')
         config = {
-            'block_size': trial.suggest_categorical('block_size', [64, 128, 256]),
-            'n_embd':     trial.suggest_categorical('n_embd', [64, 128, 256]),
-            'n_head':     trial.suggest_categorical('n_head', [2, 4, 8]),
-            'n_layer':    trial.suggest_categorical('n_layer', [1, 2, 4]),
-            'dropout':    trial.suggest_float('dropout', 0.1, 0.4),
-            'lr':         trial.suggest_float('lr', 1e-4, 1e-3, log=True),
-            'weight_decay': trial.suggest_float('weight_decay', 1e-4, 1e-1, log=True),
-            'batch_size': trial.suggest_categorical('batch_size', [16, 32, 64]),
+            'block_size':   trial.suggest_categorical('block_size', sp['block_size']),
+            'n_embd':       trial.suggest_categorical('n_embd', sp['n_embd']),
+            'n_head':       trial.suggest_categorical('n_head', sp['n_head']),
+            'n_layer':      trial.suggest_categorical('n_layer', sp['n_layer']),
+            'dropout':      trial.suggest_float('dropout', *sp['dropout_range']),
+            'lr':           trial.suggest_float('lr', *sp['lr_range'], log=True),
+            'weight_decay': trial.suggest_float('weight_decay', *sp['wd_range'], log=True),
+            'batch_size':   trial.suggest_categorical('batch_size', sp['batch_size']),
             **fixed_task,
         }
         model = TaskTransformer(
@@ -59,15 +68,16 @@ def run(n_trials_task=50, n_trials_region=50, n_trials_time=50, fixed_task=None,
             torch.cuda.empty_cache()
 
     def objective_region(trial, fixed_region):
+        sp = get_optuna_search_space(max_len, model_type='region')
         config = {
-            'block_size': trial.suggest_categorical('block_size', [64, 128, 256]),
-            'n_embd':     trial.suggest_categorical('n_embd', [64, 128, 256]),
-            'n_head':     trial.suggest_categorical('n_head', [2, 4, 8]),
-            'n_layer':    trial.suggest_categorical('n_layer', [1, 2, 4]),
-            'dropout':    trial.suggest_float('dropout', 0.1, 0.4),
-            'lr':         trial.suggest_float('lr', 1e-4, 1e-3, log=True),
-            'weight_decay': trial.suggest_float('weight_decay', 1e-4, 1e-1, log=True),
-            'batch_size': trial.suggest_categorical('batch_size', [16, 32, 64]),
+            'block_size':   trial.suggest_categorical('block_size', sp['block_size']),
+            'n_embd':       trial.suggest_categorical('n_embd', sp['n_embd']),
+            'n_head':       trial.suggest_categorical('n_head', sp['n_head']),
+            'n_layer':      trial.suggest_categorical('n_layer', sp['n_layer']),
+            'dropout':      trial.suggest_float('dropout', *sp['dropout_range']),
+            'lr':           trial.suggest_float('lr', *sp['lr_range'], log=True),
+            'weight_decay': trial.suggest_float('weight_decay', *sp['wd_range'], log=True),
+            'batch_size':   trial.suggest_categorical('batch_size', sp['batch_size']),
             **fixed_region,
         }
         model = RegionTransformer(
@@ -87,15 +97,16 @@ def run(n_trials_task=50, n_trials_region=50, n_trials_time=50, fixed_task=None,
             torch.cuda.empty_cache()
 
     def objective_time(trial, fixed_time):
+        sp = get_optuna_search_space(max_len, model_type='time')
         config = {
-            'block_size': trial.suggest_categorical('block_size', [16, 32, 64, 128]),
-            'n_embd':     trial.suggest_categorical('n_embd', [32, 64, 128, 256]),
-            'n_head':     trial.suggest_categorical('n_head', [2, 4, 8]),
-            'n_layer':    trial.suggest_categorical('n_layer', [1, 2, 4]),
-            'dropout':    trial.suggest_float('dropout', 0.1, 0.4),
-            'lr':         trial.suggest_float('lr', 1e-4, 1e-3, log=True),
-            'weight_decay': trial.suggest_float('weight_decay', 1e-4, 1e-1, log=True),
-            'batch_size': trial.suggest_categorical('batch_size', [8, 16, 32, 64]),
+            'block_size':   trial.suggest_categorical('block_size', sp['block_size']),
+            'n_embd':       trial.suggest_categorical('n_embd', sp['n_embd']),
+            'n_head':       trial.suggest_categorical('n_head', sp['n_head']),
+            'n_layer':      trial.suggest_categorical('n_layer', sp['n_layer']),
+            'dropout':      trial.suggest_float('dropout', *sp['dropout_range']),
+            'lr':           trial.suggest_float('lr', *sp['lr_range'], log=True),
+            'weight_decay': trial.suggest_float('weight_decay', *sp['wd_range'], log=True),
+            'batch_size':   trial.suggest_categorical('batch_size', sp['batch_size']),
             **fixed_time,
         }
         model = TimeTransformer(
