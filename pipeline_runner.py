@@ -1,10 +1,10 @@
 """
-Orchestratore della pipeline sperimentale — 24 processi.
+Orchestratore della pipeline sperimentale — 171 processi.
 
 Per ogni processo in PROCESSES esegue in sequenza:
   1. data/prepare_data.py  (script, output in tempo reale)
   2. experiments/run_all_optuna.ipynb
-  3. variants/variant*.ipynb  (tutti)
+  3. variants/variant*.ipynb  (tutti in parallelo)
 
 I notebook leggono sempre data/prepared_data.pt, che viene riscritto ad ogni processo.
 
@@ -35,36 +35,13 @@ RESULTS_DIR = BASE_DIR / "results"
 BOT_TOKEN = "8910437774:AAHqyzkmTRtet_2ktDeJ-oJPbEbfPBYHPv8"
 CHAT_ID   = "654952374"
 
+OPTUNA_PROGRESS_FILE = Path("/tmp/optuna_pipeline_progress.json")
+
 # ---------------------------------------------------------------------------
-# 24 processi.
-#
-# Campi obbligatori:
-#   "name"        → identificativo usato nei log e nelle cartelle output
-#   "tree"        → oggetto lark.Tree già costruito (copia/incolla dal tuo codice)
-#
-# Campi opzionali:
-#   "args"        → lista di argomenti per prepare_data.py che SOSTITUISCE
-#                   PREPARE_DATA_ARGS per quel processo.
-#                   Se non presente, usa PREPARE_DATA_ARGS.
-#   "no_interval" → se True aggiunge --no-interval a prepare_data.py
-#                   (tracce con start/end task consecutivi, senza intervallo).
-#                   Default: False (tracce con intervallo, comportamento standard).
-#
-# Esempio:
-#   {
-#       "name": "process_03",
-#       "tree": Tree('xor', [Tree('task', [Token('NAME', 'T1')]),
-#                             Tree('task', [Token('NAME', 'T2')])]),
-#       "args": ["--n-traces", "50000", "--no-cluster"],
-#       "no_interval": True,
-#   },
+# 171 processi.
 # ---------------------------------------------------------------------------
 def get_processes():
     from lark import Tree, Token
-
-    # --------------------------------------------------------
-    # Alberi dei processi
-    # --------------------------------------------------------
 
     XOR_SEQ_5 = Tree('xor', [
         Tree('sequential', [
@@ -233,10 +210,6 @@ def get_processes():
         ])
     ])
 
-    # --------------------------------------------------------
-    # Helper per costruire gli args
-    # --------------------------------------------------------
-
     def _base(n_traces, no_cluster=True, ntpc=None, no_xor=False, no_loop=False, coverage=None, no_interval=False):
         args = ["--n-traces", str(n_traces)]
         if no_xor:
@@ -255,13 +228,9 @@ def get_processes():
     def _ntpc(n):
         return {5000: 1000, 15000: 3000, 50000: 10000}[n]
 
-    # --------------------------------------------------------
-    # Costruzione PROCESSES
-    # --------------------------------------------------------
-
     processes = []
 
-    # === 1) XOR + SEQ (5 configurazioni) ===
+    # === 1) XOR + SEQ (5) ===
     processes += [
         {"name": "xs_c5_5k",              "tree": XOR_SEQ_5,  "args": _base(5000,  no_xor=True, no_loop=True)},
         {"name": "xs_c10_5k_nocluster",   "tree": XOR_SEQ_10, "args": _base(5000,  no_xor=True, no_loop=True)},
@@ -270,7 +239,7 @@ def get_processes():
         {"name": "xs_c10_15k_cluster",    "tree": XOR_SEQ_10, "args": _base(15000, no_xor=True, no_loop=True, no_cluster=False, ntpc=_ntpc(15000))},
     ]
 
-    # === 2) PAR + SEQ (9 configurazioni) ===
+    # === 2) PAR + SEQ (9) ===
     processes += [
         {"name": "ps_c5_5k", "tree": PAR_SEQ_5, "args": _base(5000, no_xor=True, no_loop=True)},
     ]
@@ -283,7 +252,7 @@ def get_processes():
                     entry["no_interval"] = True
                 processes.append(entry)
 
-    # === 3) XOR + PAR + SEQ (29 configurazioni) ===
+    # === 3) XOR + PAR + SEQ (29) ===
     processes += [
         {"name": "xps_c4_5k", "tree": XOR_PAR_SEQ_4, "args": _base(5000, no_xor=True, no_loop=True)},
     ]
@@ -302,7 +271,7 @@ def get_processes():
                         entry["no_interval"] = True
                     processes.append(entry)
 
-    # === 4) LOOP + SEQ (15 configurazioni) ===
+    # === 4) LOOP + SEQ (15) ===
     for cov_name, kw in [("cov0", dict(no_xor=True, no_loop=True)), ("cov05", dict(no_xor=True, coverage=0.5)), ("cov1", dict(no_xor=True, coverage=1.0))]:
         processes.append({"name": f"ls_c3_5k_{cov_name}", "tree": LOOP_SEQ_3, "args": _base(5000, **kw)})
 
@@ -312,7 +281,7 @@ def get_processes():
                 name = f"ls_c8_{n//1000}k_{'nocluster' if clust else 'cluster'}_{cov_name}"
                 processes.append({"name": name, "tree": LOOP_SEQ_8, "args": _base(n, no_cluster=clust, ntpc=nc, **kw)})
 
-    # === 5) LOOP + XOR (15 configurazioni) ===
+    # === 5) LOOP + XOR (15) ===
     for cov_name, kw in [("cov0", dict(no_xor=True, no_loop=True)), ("cov05", dict(no_xor=True, coverage=0.5)), ("cov1", dict(no_xor=True, coverage=1.0))]:
         processes.append({"name": f"lx_c5_5k_{cov_name}", "tree": LOOP_XOR_5, "args": _base(5000, **kw)})
 
@@ -322,7 +291,7 @@ def get_processes():
                 name = f"lx_c10_{n//1000}k_{'nocluster' if clust else 'cluster'}_{cov_name}"
                 processes.append({"name": name, "tree": LOOP_XOR_10, "args": _base(n, no_cluster=clust, ntpc=nc, **kw)})
 
-    # === 6) LOOP + PAR (27 configurazioni) ===
+    # === 6) LOOP + PAR (27) ===
     for cov_name, kw in [("cov0", dict(no_xor=True, no_loop=True)), ("cov05", dict(no_xor=True, coverage=0.5)), ("cov1", dict(no_xor=True, coverage=1.0))]:
         processes.append({"name": f"lp_c9_5k_{cov_name}", "tree": LOOP_PAR_9, "args": _base(5000, **kw)})
 
@@ -336,19 +305,16 @@ def get_processes():
                         entry["no_interval"] = True
                     processes.append(entry)
 
-    # === 7) LOOP + XOR + PAR + SEQ (71 configurazioni) ===
-    # LXPS-1: c=6, 5K, no cluster, solo con intervalli, coverage solo loop
+    # === 7) LOOP + XOR + PAR + SEQ (71) ===
     for cov_name, kw in [("cov0", dict(no_xor=True, no_loop=True)), ("cov05", dict(no_xor=True, coverage=0.5)), ("cov1", dict(no_xor=True, coverage=1.0))]:
         processes.append({"name": f"lxps_c6_5k_{cov_name}", "tree": LOOP_XOR_PAR_SEQ_6, "args": _base(5000, **kw)})
 
-    # LXPS-2: c=12, 5K/15K × cluster × solo con intervalli × coverage solo loop
     for n, ntpc_val in [(5000, _ntpc(5000)), (15000, _ntpc(15000))]:
         for clust, nc in [(True, None), (False, ntpc_val)]:
             for cov_name, kw in [("cov0", dict(no_xor=True, no_loop=True)), ("cov05", dict(no_xor=True, coverage=0.5)), ("cov1", dict(no_xor=True, coverage=1.0))]:
                 name = f"lxps_c12_{n//1000}k_{'nocluster' if clust else 'cluster'}_{cov_name}"
                 processes.append({"name": name, "tree": LOOP_XOR_PAR_SEQ_12, "args": _base(n, no_cluster=clust, ntpc=nc, **kw)})
 
-    # LXPS-3: c=25, 15K/50K × cluster × intervalli × 7 combinazioni coverage
     cov_combos = [
         ("ll0_xl0",   dict(no_xor=True, no_loop=True)),
         ("ll05_xl0",  dict(no_xor=True, coverage=0.5)),
@@ -372,8 +338,6 @@ def get_processes():
 
 PROCESSES = get_processes()
 
-# Argomenti di default per prepare_data.py.
-# Usati per i processi che non hanno il campo "args".
 PREPARE_DATA_ARGS = [
     "--n-traces",              "30000",
     "--coverage",              "0.5",
@@ -382,10 +346,8 @@ PREPARE_DATA_ARGS = [
     "--window",                "5",
 ]
 
-# Gira in sequenza prima delle varianti (produce i best params).
 OPTUNA_STEP = BASE_DIR / "experiments" / "run_all_optuna.ipynb"
 
-# Girano tutti in parallelo dopo optuna.
 VARIANT_STEPS = [
     BASE_DIR / "variants" / "variant1_taskregion_time.ipynb",
     BASE_DIR / "variants" / "variant2_taskregion_time.ipynb",
@@ -397,27 +359,70 @@ VARIANT_STEPS = [
 
 
 # ---------------------------------------------------------------------------
-# Telegram — supporta messaggi lunghi (split automatico ogni 4000 char)
+# Telegram
 # ---------------------------------------------------------------------------
 
 TG_MAX = 4000
 
-def _tg(text: str, silent: bool = False):
+
+def _tg_send(text: str, silent: bool = False) -> int | None:
+    """Invia un messaggio e restituisce il message_id (None se errore)."""
     chunks = [text[i:i+TG_MAX] for i in range(0, len(text), TG_MAX)]
+    last_id = None
     for chunk in chunks:
         try:
-            requests.post(
+            r = requests.post(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
                 data={
-                    "chat_id": CHAT_ID,
-                    "text": chunk,
-                    "parse_mode": "HTML",
-                    "disable_notification": silent,
+                    "chat_id":             CHAT_ID,
+                    "text":                chunk,
+                    "parse_mode":          "HTML",
+                    "disable_notification": "true" if silent else "false",
                 },
                 timeout=10,
             )
+            data = r.json()
+            if data.get("ok"):
+                last_id = data["result"]["message_id"]
         except Exception as e:
-            print(f"[TELEGRAM ERROR] {e}")
+            print(f"[TG SEND ERROR] {e}")
+    return last_id
+
+
+def _tg_edit(message_id: int, text: str):
+    """Edita un messaggio esistente."""
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText",
+            data={
+                "chat_id":    CHAT_ID,
+                "message_id": message_id,
+                "text":       text[:TG_MAX],
+                "parse_mode": "HTML",
+            },
+            timeout=10,
+        )
+    except Exception as e:
+        print(f"[TG EDIT ERROR] {e}")
+
+
+def _tg_delete(message_id: int | None):
+    """Cancella un messaggio."""
+    if message_id is None:
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage",
+            data={"chat_id": CHAT_ID, "message_id": message_id},
+            timeout=10,
+        )
+    except Exception as e:
+        print(f"[TG DELETE ERROR] {e}")
+
+
+def _tg(text: str, silent: bool = False):
+    """Fire-and-forget: invia senza restituire l'id."""
+    _tg_send(text, silent=silent)
 
 
 # ---------------------------------------------------------------------------
@@ -441,21 +446,18 @@ def _log(msg: str, telegram: bool = False, silent_tg: bool = False):
 
 
 # ---------------------------------------------------------------------------
-# Esecuzione script .py — stdout in tempo reale, tutto su Telegram a fine run
+# Esecuzione script .py — nessun messaggio Telegram (gestito dal chiamante)
 # ---------------------------------------------------------------------------
 
 def run_script(name: str, script_path: Path, extra_args: list) -> tuple[bool, str]:
     cmd = [sys.executable, "-u", str(script_path)] + [str(a) for a in extra_args]
-
-    _log(f"▶ [{name}] Avvio script: {script_path.name}", telegram=True)
+    _log(f"▶ [{name}] Avvio script: {script_path.name}")
     t0 = time.time()
 
-    output_lines: list[str] = []
-    
-    # Replica il comportamento di PyCharm: aggiunge la root al PYTHONPATH
     env = os.environ.copy()
     env["PYTHONPATH"] = str(BASE_DIR)
-    
+    output_lines: list[str] = []
+
     try:
         proc = subprocess.Popen(
             cmd,
@@ -463,7 +465,7 @@ def run_script(name: str, script_path: Path, extra_args: list) -> tuple[bool, st
             stderr=subprocess.STDOUT,
             text=True,
             cwd=str(BASE_DIR),
-            env=env
+            env=env,
         )
         for line in proc.stdout:
             line = line.rstrip()
@@ -471,35 +473,23 @@ def run_script(name: str, script_path: Path, extra_args: list) -> tuple[bool, st
             output_lines.append(line)
         proc.wait()
 
-        elapsed = time.time() - t0
+        elapsed     = time.time() - t0
         full_output = "\n".join(output_lines)
 
         if proc.returncode == 0:
             _log(f"✅ [{name}] Completato: {script_path.name} ({elapsed:.0f}s)")
-            _tg(
-                f"✅ <b>[{name}] Completato</b>: {script_path.name}\n"
-                f"⏱ {elapsed:.0f}s\n\n"
-                f"<pre>{full_output}</pre>"
-            )
-            return True, full_output
         else:
-            _log(f"❌ [{name}] ERRORE (exit {proc.returncode}): {script_path.name}")
-            _tg(
-                f"❌ <b>[{name}] ERRORE</b>: {script_path.name}\n"
-                f"exit={proc.returncode}  ⏱ {elapsed:.0f}s\n\n"
-                f"<pre>{full_output[-1500:]}</pre>"
-            )
-            return False, full_output
+            _log(f"❌ [{name}] ERRORE (exit {proc.returncode}): {script_path.name} ({elapsed:.0f}s)")
+        return proc.returncode == 0, full_output
 
     except Exception as e:
         err = str(e)
         _log(f"❌ [{name}] ECCEZIONE: {script_path.name}\n{err}")
-        _tg(f"❌ <b>[{name}] ECCEZIONE</b>: {script_path.name}\n<pre>{err}</pre>")
         return False, err
 
 
 # ---------------------------------------------------------------------------
-# Esecuzione notebook .ipynb — tutto l'output su Telegram a fine run
+# Esecuzione notebook .ipynb — nessun messaggio Telegram (gestito dal chiamante)
 # ---------------------------------------------------------------------------
 
 def _extract_all_outputs(nb_path: Path) -> str:
@@ -527,10 +517,9 @@ def _extract_all_outputs(nb_path: Path) -> str:
     return "\n---\n".join(chunks)
 
 
-def run_notebook(name: str, nb_path: Path, output_dir: Path, send_telegram: bool = True) -> tuple[bool, str]:
+def run_notebook(name: str, nb_path: Path, output_dir: Path) -> tuple[bool, str]:
     output_path = output_dir / nb_path.name
-
-    _log(f"▶ [{name}] Avvio notebook: {nb_path.name}", telegram=True)
+    _log(f"▶ [{name}] Avvio notebook: {nb_path.name}")
     t0 = time.time()
 
     try:
@@ -544,32 +533,38 @@ def run_notebook(name: str, nb_path: Path, output_dir: Path, send_telegram: bool
         )
         elapsed  = time.time() - t0
         full_out = _extract_all_outputs(output_path)
-
         _log(f"✅ [{name}] Completato: {nb_path.name} ({elapsed:.0f}s)")
-        if send_telegram:
-            _tg(
-                f"✅ <b>[{name}] Completato</b>: {nb_path.name}\n"
-                f"⏱ {elapsed:.0f}s\n\n"
-                f"<pre>{full_out}</pre>"
-                if full_out else
-                f"✅ <b>[{name}] Completato</b>: {nb_path.name}\n⏱ {elapsed:.0f}s"
-            )
         return True, full_out
 
     except pm.PapermillExecutionError as e:
         elapsed = time.time() - t0
         err_msg = str(e)[:800]
         _log(f"❌ [{name}] ERRORE: {nb_path.name} ({elapsed:.0f}s)\n{err_msg}")
-        if send_telegram:
-            _tg(f"❌ <b>[{name}] ERRORE</b>: {nb_path.name}\n⏱ {elapsed:.0f}s\n\n<pre>{err_msg}</pre>")
         return False, err_msg
 
     except Exception as e:
         err_msg = str(e)
         _log(f"❌ [{name}] ECCEZIONE: {nb_path.name}\n{err_msg}")
-        if send_telegram:
-            _tg(f"❌ <b>[{name}] ECCEZIONE</b>: {nb_path.name}\n<pre>{err_msg}</pre>")
         return False, err_msg
+
+
+# ---------------------------------------------------------------------------
+# Watcher thread per il progresso optuna
+# ---------------------------------------------------------------------------
+
+def _watch_optuna(pname: str, msg_id: int, stop_event: threading.Event):
+    last = 0
+    while not stop_event.is_set():
+        try:
+            if OPTUNA_PROGRESS_FILE.exists():
+                data = json.loads(OPTUNA_PROGRESS_FILE.read_text())
+                v = data.get("variant", 0)
+                if v != last:
+                    last = v
+                    _tg_edit(msg_id, f"⏳ <b>[{pname}] Optuna</b>: variante {v}/6...")
+        except Exception:
+            pass
+        stop_event.wait(3)
 
 
 # ---------------------------------------------------------------------------
@@ -583,19 +578,23 @@ def main(stop_on_error: bool = False):
     run_dir      = RESULTS_DIR / f"run_{run_id}"
     run_dir.mkdir(parents=True, exist_ok=True)
     _report_path = run_dir / "report.txt"
+    total_procs  = len(PROCESSES)
+    start_ts     = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    _log(f"{'='*60}\nPIPELINE AVVIATA — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-         f"Processi: {len(PROCESSES)}  |  Run dir: {run_dir}\n{'='*60}")
-    _tg(
-        f"🚀 <b>Pipeline avviata</b>\n"
-        f"📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        f"📊 {len(PROCESSES)} processi\n"
-        f"📁 {run_dir.name}"
+    _log(f"{'='*60}\nPIPELINE AVVIATA — {start_ts}\n"
+         f"Processi: {total_procs}  |  Run dir: {run_dir}\n{'='*60}")
+
+    # Dashboard: unico messaggio che viene editato per tutta la durata
+    dashboard_id = _tg_send(
+        f"📊 <b>Pipeline avviata</b>\n"
+        f"📅 {start_ts}\n"
+        f"📦 {total_procs} processi totali\n\n"
+        f"🔵 Avvio..."
     )
 
     all_results: list[dict] = []
 
-    for proc in PROCESSES:
+    for proc_idx, proc in enumerate(PROCESSES, 1):
         pname      = proc["name"]
         proc_dir   = run_dir / pname
         proc_dir.mkdir(parents=True, exist_ok=True)
@@ -603,32 +602,74 @@ def main(stop_on_error: bool = False):
         proc_start = datetime.now().strftime("%H:%M:%S")
 
         _log(f"\n{'─'*60}\n🔵 PROCESSO: {pname}  [{proc_start}]\n{'─'*60}")
-        _tg(
-            f"🔵 <b>Processo: {pname}</b>\n"
-            f"🕐 Avvio: {proc_start}"
-        )
 
-        # Serializza il lark.Tree su file temporaneo per passarlo a prepare_data.py
+        # Aggiorna dashboard
+        if dashboard_id:
+            _tg_edit(
+                dashboard_id,
+                f"📊 <b>Pipeline in corso</b>\n"
+                f"📅 {start_ts}\n"
+                f"✅ {proc_idx - 1}/{total_procs} completati\n\n"
+                f"🔵 Processo {proc_idx}/{total_procs}\n"
+                f"📋 {pname}",
+            )
+
+        # Messaggio permanente: intestazione processo
+        _tg_send(f"🔵 <b>Processo {proc_idx}/{total_procs}</b>: <code>{pname}</code>\n🕐 {proc_start}")
+
+        # Serializza il lark.Tree
         tree_file = tempfile.NamedTemporaryFile(suffix=".pkl", delete=False)
         pickle.dump(proc["tree"], tree_file)
         tree_file.close()
 
-        # 1. prepare_data.py
+        # ── 1. prepare_data ──────────────────────────────────────────────
         prepare_args = ["--tree-file", tree_file.name] + proc.get("args", PREPARE_DATA_ARGS)
         if proc.get("no_interval", False):
             prepare_args.append("--no-interval")
+
+        tmp_prepare = _tg_send(f"⏳ <b>[{pname}]</b> prepare_data in corso...", silent=True)
         ok, out = run_script(pname, BASE_DIR / "data" / "prepare_data.py", prepare_args)
+        _tg_delete(tmp_prepare)
         Path(tree_file.name).unlink(missing_ok=True)
         proc_results.append({"step": "prepare_data.py", "success": ok})
+
+        # Messaggio permanente: output prepare_data
+        if ok:
+            _tg_send(
+                f"✅ <b>[{pname}] prepare_data</b>\n\n<pre>{out}</pre>"
+                if out else
+                f"✅ <b>[{pname}] prepare_data</b>"
+            )
+        else:
+            _tg_send(
+                f"❌ <b>[{pname}] prepare_data ERRORE</b>\n\n<pre>{out[-1500:]}</pre>"
+                if out else
+                f"❌ <b>[{pname}] prepare_data ERRORE</b>"
+            )
 
         if not ok and stop_on_error:
             _log(f"🛑 [{pname}] stop_on_error, salto al prossimo processo.", telegram=True)
             all_results.append({"process": pname, "steps": proc_results})
             continue
 
-        # 2. Optuna (sequenziale — produce i best params per le varianti)
+        # ── 2. Optuna ────────────────────────────────────────────────────
         if OPTUNA_STEP.exists():
+            tmp_optuna = _tg_send(f"⏳ <b>[{pname}] Optuna</b>: avvio...", silent=True)
+            OPTUNA_PROGRESS_FILE.write_text('{"variant": 0, "total": 6}')
+
+            stop_ev  = threading.Event()
+            watch_t  = threading.Thread(
+                target=_watch_optuna, args=(pname, tmp_optuna, stop_ev), daemon=True
+            )
+            watch_t.start()
+
             ok, _ = run_notebook(pname, OPTUNA_STEP, proc_dir)
+
+            stop_ev.set()
+            watch_t.join(timeout=5)
+            _tg_delete(tmp_optuna)
+            OPTUNA_PROGRESS_FILE.unlink(missing_ok=True)
+
             proc_results.append({"step": OPTUNA_STEP.name, "success": ok})
             if not ok and stop_on_error:
                 _log(f"🛑 [{pname}] stop_on_error, salto al prossimo processo.", telegram=True)
@@ -638,67 +679,75 @@ def main(stop_on_error: bool = False):
             _log(f"⚠️ [{pname}] {OPTUNA_STEP.name} non trovato, saltato.", telegram=True)
             proc_results.append({"step": OPTUNA_STEP.name, "success": None})
 
-        # 3. Varianti in parallelo — output mandato su Telegram in ordine 1→6
-        _tg(f"⚡ <b>[{pname}]</b> Avvio {len(VARIANT_STEPS)} varianti in parallelo...")
-        variant_results: dict[str, tuple[bool, str]] = {}
-        with ThreadPoolExecutor(max_workers=len(VARIANT_STEPS)) as ex:
-            futures = {
-                ex.submit(run_notebook, pname, nb, proc_dir, send_telegram=False): nb
-                for nb in VARIANT_STEPS if nb.exists()
-            }
-            for nb in VARIANT_STEPS:
-                if not nb.exists():
-                    _log(f"⚠️ [{pname}] {nb.name} non trovato, saltato.", telegram=True)
-                    variant_results[nb.name] = (None, "")
-            for future in as_completed(futures):
-                nb = futures[future]
-                ok, out = future.result()
-                variant_results[nb.name] = (ok, out)
+        # ── 3. Varianti in parallelo ──────────────────────────────────────
+        existing_variants = [nb for nb in VARIANT_STEPS if nb.exists()]
+        for nb in VARIANT_STEPS:
+            if not nb.exists():
+                _log(f"⚠️ [{pname}] {nb.name} non trovato, saltato.", telegram=True)
 
-        # Manda i risultati in ordine 1→6
+        # Messaggi temporanei: uno per ogni variante
+        var_tmp_ids: dict[str, int | None] = {
+            nb.name: _tg_send(f"⏳ <b>[{pname}]</b> {nb.name} in corso...", silent=True)
+            for nb in existing_variants
+        }
+
+        variant_results: dict[str, tuple[bool, str]] = {}
+        with ThreadPoolExecutor(max_workers=len(existing_variants)) as ex:
+            futures = {
+                ex.submit(run_notebook, pname, nb, proc_dir): nb
+                for nb in existing_variants
+            }
+            for future in as_completed(futures):
+                nb         = futures[future]
+                ok, out    = future.result()
+                variant_results[nb.name] = (ok, out)
+                _tg_delete(var_tmp_ids.get(nb.name))
+
+        # Messaggi permanenti: risultati in ordine 1→6
         for nb in VARIANT_STEPS:
             ok, out = variant_results.get(nb.name, (None, ""))
-            elapsed_tag = ""
             if ok is True:
-                _tg(
-                    f"✅ <b>[{pname}] Completato</b>: {nb.name}\n\n"
-                    f"<pre>{out}</pre>" if out else
-                    f"✅ <b>[{pname}] Completato</b>: {nb.name}"
+                _tg_send(
+                    f"✅ <b>[{pname}] {nb.name}</b>\n\n<pre>{out}</pre>"
+                    if out else
+                    f"✅ <b>[{pname}] {nb.name}</b>"
                 )
             elif ok is False:
-                _tg(f"❌ <b>[{pname}] ERRORE</b>: {nb.name}\n\n<pre>{out[-800:]}</pre>")
+                _tg_send(f"❌ <b>[{pname}] ERRORE</b>: {nb.name}\n\n<pre>{out[-800:]}</pre>")
             proc_results.append({"step": nb.name, "success": ok})
 
-        # Riepilogo del processo
-        ok_n   = sum(1 for r in proc_results if r["success"] is True)
-        fail_n = sum(1 for r in proc_results if r["success"] is False)
-        _tg(
-            f"📋 <b>{pname} — riepilogo</b>\n"
-            + "\n".join(
-                f"{'✅' if r['success'] else ('❌' if r['success'] is False else '⏭️')}  {r['step']}"
-                for r in proc_results
-            )
-            + f"\n✅ {ok_n}  ❌ {fail_n}"
-        )
         all_results.append({"process": pname, "steps": proc_results})
 
-    # --- Riepilogo globale ---
-    total_steps  = sum(len(p["steps"]) for p in all_results)
-    total_ok     = sum(1 for p in all_results for s in p["steps"] if s["success"] is True)
-    total_fail   = sum(1 for p in all_results for s in p["steps"] if s["success"] is False)
-    proc_ok      = sum(1 for p in all_results if all(s["success"] is not False for s in p["steps"]))
+    # ── Riepilogo finale ──────────────────────────────────────────────────
+    total_steps = sum(len(p["steps"]) for p in all_results)
+    total_ok    = sum(1 for p in all_results for s in p["steps"] if s["success"] is True)
+    total_fail  = sum(1 for p in all_results for s in p["steps"] if s["success"] is False)
+    proc_ok     = sum(1 for p in all_results if all(s["success"] is not False for s in p["steps"]))
 
-    summary_lines = [f"\n{'='*60}", "RISULTATO FINALE", "="*60,
-                     f"  Processi completati senza errori: {proc_ok}/{len(all_results)}",
-                     f"  Step totali: {total_ok} OK / {total_fail} falliti / {total_steps} totali",
-                     "", "  Dettaglio:"]
+    summary_lines = [
+        f"\n{'='*60}", "RISULTATO FINALE", "="*60,
+        f"  Processi OK: {proc_ok}/{len(all_results)}",
+        f"  Step totali: {total_ok} OK / {total_fail} falliti / {total_steps} totali",
+        "", "  Dettaglio:",
+    ]
     for p in all_results:
         has_fail = any(s["success"] is False for s in p["steps"])
         summary_lines.append(f"  {'❌' if has_fail else '✅'}  {p['process']}")
     summary_lines += [f"  Report: {_report_path}", "="*60]
     _log("\n".join(summary_lines))
 
-    _tg(
+    # Aggiorna dashboard con risultato finale
+    if dashboard_id:
+        _tg_edit(
+            dashboard_id,
+            f"🏁 <b>Pipeline completata</b>\n"
+            f"📅 {start_ts}\n"
+            f"📦 {total_procs} processi\n\n"
+            f"✅ {proc_ok} OK  ❌ {len(all_results) - proc_ok} falliti",
+        )
+
+    # Messaggio riepilogo finale (nuovo, rimane in chat)
+    _tg_send(
         f"🏁 <b>Pipeline completata</b>\n"
         f"📊 Processi OK: {proc_ok}/{len(all_results)}\n"
         f"Step: ✅ {total_ok}  ❌ {total_fail}\n\n"
@@ -709,7 +758,6 @@ def main(stop_on_error: bool = False):
         + f"\n\n📄 <code>{_report_path.name}</code>"
     )
 
-    # JSON riepilogo
     with open(run_dir / "summary.json", "w", encoding="utf-8") as f:
         json.dump({"run_id": run_id, "results": all_results}, f, indent=2)
 
