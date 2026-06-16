@@ -15,6 +15,7 @@ Uso:
 
 import sys
 import os
+import html
 import time
 import json
 import pickle
@@ -636,13 +637,13 @@ def main(stop_on_error: bool = False):
         # Messaggio permanente: output prepare_data
         if ok:
             _tg_send(
-                f"✅ <b>[{pname}] prepare_data</b>\n\n<pre>{out}</pre>"
+                f"✅ <b>[{pname}] prepare_data</b>\n\n<pre>{html.escape(out)}</pre>"
                 if out else
                 f"✅ <b>[{pname}] prepare_data</b>"
             )
         else:
             _tg_send(
-                f"❌ <b>[{pname}] prepare_data ERRORE</b>\n\n<pre>{out[-1500:]}</pre>"
+                f"❌ <b>[{pname}] prepare_data ERRORE</b>\n\n<pre>{html.escape(out[-1500:])}</pre>"
                 if out else
                 f"❌ <b>[{pname}] prepare_data ERRORE</b>"
             )
@@ -663,12 +664,21 @@ def main(stop_on_error: bool = False):
             )
             watch_t.start()
 
-            ok, _ = run_notebook(pname, OPTUNA_STEP, proc_dir)
+            ok, optuna_out = run_notebook(pname, OPTUNA_STEP, proc_dir)
 
             stop_ev.set()
             watch_t.join(timeout=5)
             _tg_delete(tmp_optuna)
             OPTUNA_PROGRESS_FILE.unlink(missing_ok=True)
+
+            if ok:
+                _tg_send(
+                    f"✅ <b>[{pname}] Optuna completato</b>\n\n<pre>{html.escape(optuna_out)}</pre>"
+                    if optuna_out else
+                    f"✅ <b>[{pname}] Optuna completato</b>"
+                )
+            else:
+                _tg_send(f"❌ <b>[{pname}] Optuna ERRORE</b>\n\n<pre>{html.escape(optuna_out[-800:])}</pre>")
 
             proc_results.append({"step": OPTUNA_STEP.name, "success": ok})
             if not ok and stop_on_error:
@@ -708,12 +718,12 @@ def main(stop_on_error: bool = False):
             ok, out = variant_results.get(nb.name, (None, ""))
             if ok is True:
                 _tg_send(
-                    f"✅ <b>[{pname}] {nb.name}</b>\n\n<pre>{out}</pre>"
+                    f"✅ <b>[{pname}] {nb.name}</b>\n\n<pre>{html.escape(out)}</pre>"
                     if out else
                     f"✅ <b>[{pname}] {nb.name}</b>"
                 )
             elif ok is False:
-                _tg_send(f"❌ <b>[{pname}] ERRORE</b>: {nb.name}\n\n<pre>{out[-800:]}</pre>")
+                _tg_send(f"❌ <b>[{pname}] ERRORE</b>: {nb.name}\n\n<pre>{html.escape(out[-800:])}</pre>")
             proc_results.append({"step": nb.name, "success": ok})
 
         all_results.append({"process": pname, "steps": proc_results})
