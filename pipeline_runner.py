@@ -713,20 +713,6 @@ def main(stop_on_error: bool = False):
         Path(tree_file.name).unlink(missing_ok=True)
         proc_results.append({"step": "prepare_data.py", "success": ok})
 
-        # Messaggio permanente: output prepare_data
-        if ok:
-            _tg_send(
-                f"✅ <b>[{pname}] prepare_data</b>\n\n<pre>{html.escape(out)}</pre>"
-                if out else
-                f"✅ <b>[{pname}] prepare_data</b>"
-            )
-        else:
-            _tg_send(
-                f"❌ <b>[{pname}] prepare_data ERRORE</b>\n\n<pre>{html.escape(out[-1500:])}</pre>"
-                if out else
-                f"❌ <b>[{pname}] prepare_data ERRORE</b>"
-            )
-
         if not ok and stop_on_error:
             _log(f"🛑 [{pname}] stop_on_error, salto al prossimo processo.", telegram=True)
             all_results.append({"process": pname, "steps": proc_results})
