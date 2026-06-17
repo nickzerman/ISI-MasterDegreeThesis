@@ -709,7 +709,10 @@ def main(stop_on_error: bool = False):
 
         tmp_prepare = _tg_send(f"⏳ <b>[{pname}]</b> prepare_data in corso...", silent=True)
         ok, out = run_script(pname, BASE_DIR / "data" / "prepare_data.py", prepare_args)
-        _tg_delete(tmp_prepare)
+        if ok:
+            _tg_edit(tmp_prepare, f"✅ <b>[{pname}] prepare_data</b>\n\n<pre>{html.escape(out[-800:])}</pre>" if out else f"✅ <b>[{pname}] prepare_data</b>")
+        else:
+            _tg_edit(tmp_prepare, f"❌ <b>[{pname}] prepare_data ERRORE</b>\n\n<pre>{html.escape(out[-800:])}</pre>")
         Path(tree_file.name).unlink(missing_ok=True)
         proc_results.append({"step": "prepare_data.py", "success": ok})
 

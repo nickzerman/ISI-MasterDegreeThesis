@@ -52,10 +52,80 @@ from collections import Counter
 from sklearn import tree as sktree
 from sklearn.cluster import DBSCAN
 from pm4py import save_vis_petri_net
+from joblib import Parallel, delayed
 
 from config import DATA_DIR, SEED
 from core import *
 from utils import *
+
+
+DBSCAN_THRESHOLD = 1000  # sotto → DBSCAN esatto, sopra → CLARA K-Medoids
+CLARA_M          = 1000  # dimensione campione CLARA
+CLARA_N_WORKERS  = 12    # core paralleli per le distanze Levenshtein
+
+
+def _compute_nearest(trace, medoid_traces, num_features):
+    return int(np.argmin([
+        edit_distance_weighted_levenshtein(trace, m, num_features, num_features, hamming_distance)
+        for m in medoid_traces
+    ]))
+
+
+def _pam_on_sample(dist_matrix: np.ndarray, k: int) -> list:
+    """K-Medoids (PAM) su matrice precomputata M×M. Ritorna indici dei medoidi."""
+    M = len(dist_matrix)
+
+    # BUILD: primo medoide = quello con distanza totale minima
+    medoids     = [int(np.argmin(dist_matrix.sum(axis=1)))]
+    non_medoids = [i for i in range(M) if i != medoids[0]]
+    for _ in range(k - 1):
+        min_dists = dist_matrix[:, medoids].min(axis=1)
+        best_gain, best_o = -np.inf, None
+        for o in non_medoids:
+            gain = float(np.maximum(0.0, min_dists - dist_matrix[:, o]).sum())
+            if gain > best_gain:
+                best_gain, best_o = gain, o
+        medoids.append(best_o)
+        non_medoids.remove(best_o)
+
+    # SWAP: finché c'è miglioramento
+    improved = True
+    while improved:
+        improved     = False
+        current_cost = dist_matrix[:, medoids].min(axis=1).sum()
+        for mi in range(k):
+            for o in [x for x in range(M) if x not in medoids]:
+                trial    = medoids[:]
+                trial[mi] = o
+                new_cost = dist_matrix[:, trial].min(axis=1).sum()
+                if new_cost < current_cost - 1e-9:
+                    medoids, current_cost, improved = trial, new_cost, True
+                    break
+            if improved:
+                break
+
+    return medoids
+
+
+def clara_kmedoids(traces_encoded, n_unique, num_features, k,
+                   M=CLARA_M, n_workers=CLARA_N_WORKERS):
+    """CLARA: campiona M tracce, K-Medoids (PAM) sul campione, assegna tutte le tracce."""
+    M_actual      = min(M, n_unique)
+    sample_idx    = np.random.choice(n_unique, size=M_actual, replace=False)
+    sample_traces = [traces_encoded[i] for i in sample_idx]
+
+    dist_sample   = create_distance_matrix(M_actual, sample_traces, num_features, n_workers=n_workers)
+    medoid_idx    = _pam_on_sample(dist_sample, k)
+    medoid_traces = [sample_traces[i] for i in medoid_idx]
+
+    labels = np.array(
+        Parallel(n_jobs=n_workers)(
+            delayed(_compute_nearest)(t, medoid_traces, num_features)
+            for t in traces_encoded
+        )
+    )
+    print(f"CLARA: {k} cluster, M={M_actual}, n_unique={n_unique}")
+    return labels
 
 
 def parse_args():
@@ -142,7 +212,7 @@ def main(args):
     else:
         raise ValueError("Passa --tree-file o --sese-string.")
 
-    print(tree)
+    #print(tree)
     complexity_nested, complexity_parallel = compute_process_complexity(tree)
     #print(f"complexity_nested={complexity_nested}  complexity_parallel={complexity_parallel}")
 
@@ -213,32 +283,34 @@ def main(args):
     traces_encoded = list(trace_counts.keys())
     trace_weights  = list(trace_counts.values())
     n_unique       = len(traces_encoded)
-    #print(f"Tracce uniche: {n_unique}")
+    print(f"Tracce uniche: {n_unique}")
 
     # --- Clustering (opzionale) ---
     if args.no_cluster:
-        #print("Clustering saltato (--no-cluster). Uso tutte le tracce senza bilanciamento.")
-        balanced_traces  = all_traces
+        balanced_traces    = all_traces
         df_traces_balanced = df_traces_complete.copy()
 
     else:
-        distance_matrix = create_distance_matrix(
-            n_unique, traces_encoded, num_regions + num_tasks, n_workers=1
-        )
-        #print(f"Distance matrix: {distance_matrix.shape}")
-
-        # Selezione epsilon
-        if args.min_clusters is not None:
-            eps = find_epsilon(distance_matrix, trace_weights, args.min_clusters)
-            #print(f"Auto-epsilon: eps={eps:.4f}  (target ≥ {args.min_clusters} cluster)")
+        num_features = num_regions + num_tasks
+        if n_unique <= DBSCAN_THRESHOLD:
+            # DBSCAN esatto su matrice Levenshtein completa
+            distance_matrix = create_distance_matrix(
+                n_unique, traces_encoded, num_features, n_workers=CLARA_N_WORKERS
+            )
+            if args.min_clusters is not None:
+                eps = find_epsilon(distance_matrix, trace_weights, args.min_clusters)
+            else:
+                eps = args.eps if args.eps is not None else 25.0
+            dbscan = DBSCAN(eps=eps, min_samples=1, metric="precomputed")
+            dbscan.fit(distance_matrix, sample_weight=trace_weights)
+            cluster_labels = dbscan.labels_
+            print(f"DBSCAN: {len(set(cluster_labels))} cluster (n_unique={n_unique})")
         else:
-            eps = args.eps if args.eps is not None else 25.0
-            #print(f"Epsilon: {eps}")
-
-        dbscan = DBSCAN(eps=eps, min_samples=1, metric="precomputed")
-        dbscan.fit(distance_matrix, sample_weight=trace_weights)
-        cluster_labels = dbscan.labels_
-        print(f"Clusters trovati: {len(set(cluster_labels))}")
+            # CLARA K-Medoids: campione M=1000, assegnazione parallela
+            k = args.min_clusters if args.min_clusters is not None else 5
+            cluster_labels = clara_kmedoids(
+                traces_encoded, n_unique, num_features, k=k
+            )
 
         balanced_traces, balanced_columns = get_balance_traces_by_cluster(
             traces_encoded, cluster_labels, args.num_trace_per_cluster
