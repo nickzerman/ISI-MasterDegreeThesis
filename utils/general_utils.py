@@ -1,7 +1,19 @@
 import re
-from lark import Tree
+import random
+import numpy as np
 import torch
+from lark import Tree
 from pm4py.objects.process_tree.obj import Operator
+
+
+def set_seed(seed: int) -> None:
+    """Imposta il seed globale per riproducibilità su CPU e GPU."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 def createNAryTree(tree):
     """

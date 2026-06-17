@@ -2,7 +2,8 @@
 import gc
 import torch
 import optuna
-from config import DATA_DIR, RESULTS_DIR
+from config import DATA_DIR, RESULTS_DIR, SEED
+from utils import set_seed
 from core.models import TaskTransformer
 from core.models.UnifiedTransformer import UnifiedTransformer
 from core.training import train_task, train_unified_onlyregion
@@ -18,6 +19,7 @@ def run(n_trials_task=50, n_trials_unified=50, fixed_task=None, fixed_unified=No
     if fixed_unified is None:
         fixed_unified = {'max_iters': 1000, 'eval_iters': 100, 'eval_interval': 100}
 
+    set_seed(SEED)
     info = torch.load(DATA_DIR / data_file if data_file else DATA_FILE, map_location=device, weights_only=False)
     n = info['n']
     data = {
@@ -95,20 +97,21 @@ def run(n_trials_task=50, n_trials_unified=50, fixed_task=None, fixed_unified=No
             gc.collect()
             torch.cuda.empty_cache()
 
+    sampler = optuna.samplers.TPESampler(seed=SEED)
     pruner = optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=100)
     storage = f'sqlite:///{RESULTS_DIR / "optuna.db"}'
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     study_task = optuna.create_study(
-        direction='minimize', pruner=pruner, study_name='v5_task',
+        direction='minimize', sampler=sampler, pruner=pruner, study_name='v5_task',
         storage=storage, load_if_exists=True,
     )
     study_task.optimize(lambda trial: objective_task(trial, fixed_task), n_trials=n_trials_task)
     print(f"[V5 TaskTransformer] Best val_loss: {study_task.best_value:.4f} | Params: {study_task.best_params}")
 
     study_unified = optuna.create_study(
-        direction='minimize', pruner=pruner, study_name='v5_unified_onlyregion',
+        direction='minimize', sampler=sampler, pruner=pruner, study_name='v5_unified_onlyregion',
         storage=storage, load_if_exists=True,
     )
     study_unified.optimize(lambda trial: objective_unified(trial, fixed_unified), n_trials=n_trials_unified)

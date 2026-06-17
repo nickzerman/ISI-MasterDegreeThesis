@@ -53,7 +53,7 @@ from sklearn import tree as sktree
 from sklearn.cluster import DBSCAN
 from pm4py import save_vis_petri_net
 
-from config import DATA_DIR
+from config import DATA_DIR, SEED
 from core import *
 from utils import *
 
@@ -126,6 +126,7 @@ def find_epsilon(distance_matrix: np.ndarray, trace_weights, min_clusters: int) 
 
 
 def main(args):
+    set_seed(SEED)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     #print(f"device={device}")
 

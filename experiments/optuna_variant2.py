@@ -2,7 +2,8 @@
 import gc
 import torch
 import optuna
-from config import DATA_DIR, RESULTS_DIR
+from config import DATA_DIR, RESULTS_DIR, SEED
+from utils import set_seed
 from core.models import TaskTransformer, TimeTransformer
 from core.training import train_task_separated, train_time_v2
 from utils import get_optuna_search_space, get_fixed_params
@@ -17,6 +18,7 @@ def run(n_trials_task=50, n_trials_time=50, fixed_task=None, fixed_time=None, da
     if fixed_time is None:
         fixed_time = {'max_iters': 500, 'eval_iters': 100, 'eval_interval': 100}
 
+    set_seed(SEED)
     info = torch.load(DATA_DIR / data_file if data_file else DATA_FILE, map_location=device, weights_only=False)
     n = info['n']
     data = {
@@ -96,20 +98,21 @@ def run(n_trials_task=50, n_trials_time=50, fixed_task=None, fixed_time=None, da
             torch.cuda.empty_cache()
 
 
+    sampler = optuna.samplers.TPESampler(seed=SEED)
     pruner = optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=100)
     storage = f'sqlite:///{RESULTS_DIR / "optuna.db"}'
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     study_task = optuna.create_study(
-        direction='minimize', pruner=pruner, study_name='v2_task_separated',
+        direction='minimize', sampler=sampler, pruner=pruner, study_name='v2_task_separated',
         storage=storage, load_if_exists=True,
     )
     study_task.optimize(lambda trial: objective_task(trial, fixed_task), n_trials=n_trials_task)
     print(f"[V2 TaskTransformer] Best val_loss: {study_task.best_value:.4f} | Params: {study_task.best_params}")
 
     study_time = optuna.create_study(
-        direction='minimize', pruner=pruner, study_name='v2_time_separated',
+        direction='minimize', sampler=sampler, pruner=pruner, study_name='v2_time_separated',
         storage=storage, load_if_exists=True,
     )
     study_time.optimize(lambda trial: objective_time(trial, fixed_time), n_trials=n_trials_time)

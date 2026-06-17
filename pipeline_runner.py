@@ -11,6 +11,9 @@ I notebook leggono sempre data/prepared_data.pt, che viene riscritto ad ogni pro
 Uso:
     python pipeline_runner.py
     python pipeline_runner.py --stop-on-error
+
+Se all_variants_results.json esiste in results/, riprende automaticamente dal processo
+dove si era fermato (le entry parziali dell'ultimo processo vengono rimosse).
 """
 
 import sys
@@ -38,6 +41,8 @@ VRAM_MIN_FREE_MB   = 4000  # MB liberi minimi prima di ritentare un notebook OOM
 VRAM_POLL_INTERVAL = 60    # secondi tra un check VRAM e l'altro
 VRAM_WAIT_TIMEOUT  = 1200  # timeout massimo attesa VRAM (20 minuti)
 VRAM_RETRY_MAX     = 2     # max retry per notebook che crashano con OOM
+
+CHECKPOINT_FILE = RESULTS_DIR / "all_variants_results.json"
 
 BOT_TOKEN = "8910437774:AAHqyzkmTRtet_2ktDeJ-oJPbEbfPBYHPv8"
 CHAT_ID   = "654952374"
@@ -627,6 +632,24 @@ def _watch_optuna(pname: str, msg_id: int, stop_event: threading.Event):
 def main(stop_on_error: bool = False):
     global _report_path
 
+    # ── Resume automatico: se il checkpoint esiste riprende da dove si è fermato ─
+    start_from = 0
+    if CHECKPOINT_FILE.exists():
+        try:
+            ckpt: list = json.loads(CHECKPOINT_FILE.read_text(encoding="utf-8"))
+            n_variants     = len(VARIANT_STEPS)
+            complete_procs = len(ckpt) // n_variants
+            partial        = len(ckpt) % n_variants
+            if partial:
+                ckpt = ckpt[:complete_procs * n_variants]
+                CHECKPOINT_FILE.write_text(json.dumps(ckpt, indent=2, ensure_ascii=False), encoding="utf-8")
+            start_from = complete_procs
+            if start_from > 0:
+                _log(f"▶️  RESUME: {complete_procs} processi nel checkpoint, riparto dal processo {start_from + 1}.")
+        except Exception as exc:
+            _log(f"⚠️  Impossibile leggere il checkpoint ({exc}). Avvio da zero.")
+            start_from = 0
+
     run_id       = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir      = RESULTS_DIR / f"run_{run_id}"
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -648,6 +671,10 @@ def main(stop_on_error: bool = False):
     all_results: list[dict] = []
 
     for proc_idx, proc in enumerate(PROCESSES, 1):
+        if proc_idx <= start_from:
+            _log(f"⏭️  Salto {proc['name']} (già completato nel checkpoint).")
+            continue
+
         pname      = proc["name"]
         proc_dir   = run_dir / pname
         proc_dir.mkdir(parents=True, exist_ok=True)
