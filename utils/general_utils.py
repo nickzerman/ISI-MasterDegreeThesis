@@ -82,16 +82,12 @@ def get_optuna_search_space(max_len: int, model_type: str = 'task') -> dict:
     Restituisce lo spazio di ricerca adattivo per Optuna basato sulla
     lunghezza massima delle tracce nel dataset corrente.
 
-    L'idea è semplice: processi con tracce corte (pochi token) non hanno
-    bisogno di un Transformer enorme. Un modello sovra-parametrizzato su
-    dati semplici spreca tempo di calcolo e va facilmente in overfitting.
-    Al contrario, processi con tracce lunghe e complesse richiedono un
-    context window grande e più layer per catturare dipendenze a lungo raggio.
-
-    Soglie:
-        max_len <= 40   → "small"  (XOR/SEQ semplici, pochi task)
-        max_len <= 120  → "medium" (strutture miste moderate)
-        max_len >  120  → "large"  (loop annidati, paralleli profondi)
+    Soglie (5 livelli):
+        max_len <  10  → "tiny"   (processi elementari, sequenze cortissime)
+        max_len <  24  → "small"  (XOR/SEQ semplici, pochi task)
+        max_len <  50  → "medium" (strutture miste moderate)
+        max_len < 100  → "large"  (loop/paralleli moderati)
+        max_len >= 100 → "xlarge" (loop annidati, paralleli profondi)
 
     Parameters
     ----------
@@ -99,64 +95,90 @@ def get_optuna_search_space(max_len: int, model_type: str = 'task') -> dict:
         Lunghezza massima delle tracce nel dataset (in token).
     model_type : str
         Tipo di modello: 'task', 'time', 'region', 'unified'.
-        Influenza i range di block_size e n_embd.
 
     Returns
     -------
     dict con chiavi 'block_size', 'n_embd', 'n_head', 'n_layer',
     'dropout_range', 'lr_range', 'wd_range', 'batch_size'.
     """
-    # --- Determina il "tier" di complessità ---
-    if max_len <= 40:
+    if max_len < 6:
+        tier = 'micro'
+    elif max_len < 10:
+        tier = 'tiny'
+    elif max_len < 24:
         tier = 'small'
-    elif max_len <= 120:
+    elif max_len < 50:
         tier = 'medium'
-    else:
+    elif max_len < 100:
         tier = 'large'
-
-    # --- Block size: deve sempre coprire max_len per non "tagliare" il contesto ---
-    # Prendiamo come minimo la prima potenza di 2 >= max_len, poi lasciamo
-    # a Optuna di scegliere tra valori più grandi (più contesto non nuoce mai).
-    if tier == 'small':
-        block_sizes = [32, 64]
-    elif tier == 'medium':
-        block_sizes = [64, 128, 256]
     else:
-        block_sizes = [128, 256, 512]
+        tier = 'xlarge'
+
+    # --- Block size ---
+    block_sizes = {
+        'micro':  [2,  4,  8],
+        'tiny':   [4,  8,  16],
+        'small':  [8,  16, 32],
+        'medium': [16, 32, 64],
+        'large':  [32, 64, 128],
+        'xlarge': [64, 128, 256],
+    }[tier]
 
     # --- Architettura: embd, heads, layers ---
-    if tier == 'small':
-        n_embd   = [16, 32, 64]
-        n_head   = [1, 2, 4]
-        n_layer  = [1, 2]
-    elif tier == 'medium':
-        n_embd   = [32, 64, 128]
-        n_head   = [2, 4, 8]
-        n_layer  = [1, 2, 4]
-    else:
-        n_embd   = [64, 128, 256]
-        n_head   = [2, 4, 8]
-        n_layer  = [2, 4, 6, 8]
+    # n_embd cresce con la complessità; per micro/tiny è volutamente piccolo
+    # per evitare overfitting su pattern semplici.
+    # n_head: tutti i valori devono dividere il minimo di n_embd del tier.
+    n_embd = {
+        'micro':  [4,  8,  16],   # head_size min = 4/2 = 2
+        'tiny':   [8,  16, 32],   # head_size min = 8/4 = 2
+        'small':  [16, 32, 64],   # head_size min = 16/4 = 4
+        'medium': [32, 64, 128],  # head_size min = 32/8 = 4
+        'large':  [64, 128, 256], # head_size min = 64/8 = 8
+        'xlarge': [64, 128, 256],
+    }[tier]
 
-    # --- Regolarizzazione: dropout più alto su modelli grandi ---
-    if tier == 'small':
-        dropout_range = (0.2, 0.3)
-    elif tier == 'medium':
-        dropout_range = (0.2, 0.4)
-    else:
-        dropout_range = (0.2, 0.5)
+    n_head = {
+        'micro':  [1, 2],
+        'tiny':   [1, 2, 4],
+        'small':  [1, 2, 4],
+        'medium': [2, 4, 8],
+        'large':  [2, 4, 8],
+        'xlarge': [2, 4, 8],
+    }[tier]
 
-    # --- Learning rate e weight decay (invarianti per tier) ---
+    n_layer = {
+        'micro':  [1, 2],
+        'tiny':   [1, 2],
+        'small':  [1, 2],
+        'medium': [1, 2, 4],
+        'large':  [2, 4, 6],
+        'xlarge': [2, 4, 6, 8],
+    }[tier]
+
+    # --- Regolarizzazione ---
+    # Dropout basso sui modelli piccoli: non vogliamo sotto-fittare
+    # architetture già ridotte. Cresce con la complessità.
+    dropout_range = {
+        'micro':  (0.1, 0.2),
+        'tiny':   (0.15, 0.25),
+        'small':  (0.2, 0.3),
+        'medium': (0.2, 0.4),
+        'large':  (0.2, 0.4),
+        'xlarge': (0.2, 0.5),
+    }[tier]
+
     lr_range = (5e-5, 3e-3)
     wd_range = (1e-4, 1e-1)
 
-    # --- Batch size: più piccola sulle sequenze lunghe (più memoria usata per token) ---
-    if tier == 'small':
-        batch_size = [32, 64, 128]
-    elif tier == 'medium':
-        batch_size = [32, 64, 128]
-    else:
-        batch_size = [16, 32, 64]
+    # --- Batch size: più grande sulle sequenze corte (meno memoria per token) ---
+    batch_size = {
+        'micro':  [128, 256, 512],
+        'tiny':   [64, 128, 256],
+        'small':  [64, 128, 256],
+        'medium': [32, 64, 128],
+        'large':  [32, 64, 128],
+        'xlarge': [16, 32, 64],
+    }[tier]
 
     return {
         'block_size':    block_sizes,
@@ -175,15 +197,6 @@ def get_fixed_params(max_len: int, model_type: str = 'task') -> dict:
     Restituisce i parametri fissi di training (max_iters, eval_iters, eval_interval)
     adattati alla complessità del processo, usando le stesse soglie di get_optuna_search_space.
 
-    Logica:
-        - Processi "small": il modello converge in fretta → pochi iter bastano.
-        - Processi "medium": convergenza moderata → iter intermedi.
-        - Processi "large": strutture complesse → servono più iterazioni per
-          superare il warmup e stabilizzare la curva di apprendimento.
-
-    Il TimeTransformer converge sempre più in fretta degli altri (loss più
-    semplice, regressione su un singolo scalare), quindi ha max_iters ridotto.
-
     Parameters
     ----------
     max_len : int
@@ -195,29 +208,31 @@ def get_fixed_params(max_len: int, model_type: str = 'task') -> dict:
     -------
     dict con chiavi 'max_iters', 'eval_iters', 'eval_interval'.
     """
-    if max_len <= 40:
+    if max_len < 6:
+        tier = 'micro'
+    elif max_len < 10:
+        tier = 'tiny'
+    elif max_len < 24:
         tier = 'small'
-    elif max_len <= 120:
+    elif max_len < 50:
         tier = 'medium'
-    else:
+    elif max_len < 100:
         tier = 'large'
+    else:
+        tier = 'xlarge'
 
     if model_type == 'time':
-        # Il time transformer converge sempre prima
-        iters = {'small': 300, 'medium': 500, 'large': 600}[tier]
+        # Il time transformer converge sempre prima (regressione scalare più semplice)
+        iters = {'micro': 80, 'tiny': 150, 'small': 300, 'medium': 500, 'large': 600, 'xlarge': 700}[tier]
     elif model_type == 'unified':
         # L'unified è il più complesso (task + region + time in un solo modello)
-        iters = {'small': 500, 'medium': 900, 'large': 1200}[tier]
+        iters = {'micro': 150, 'tiny': 300, 'small': 500, 'medium': 900, 'large': 1200, 'xlarge': 1500}[tier]
     else:
         # task e region hanno complessità simile
-        iters = {'small': 500, 'medium': 800, 'large': 1000}[tier]
-
-    # eval_interval e eval_iters fissi a 100 per tutti i tier
-    eval_interval = 100
-    eval_iters    = 100
+        iters = {'micro': 100, 'tiny': 200, 'small': 500, 'medium': 800, 'large': 1000, 'xlarge': 1200}[tier]
 
     return {
         'max_iters':     iters,
-        'eval_iters':    eval_iters,
-        'eval_interval': eval_interval,
+        'eval_iters':    100,
+        'eval_interval': 100,
     }

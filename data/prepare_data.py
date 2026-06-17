@@ -348,8 +348,9 @@ def main(args):
     '''print(f"data_complete={data_complete.shape}, data_regions={data_regions.shape}, "
           f"data_tasks={data_tasks.shape}, data_times={data_times.shape}")'''
 
-    # --- Lunghezza massima delle tracce (usata da Optuna per lo spazio di ricerca adattivo) ---
-    max_trace_len = max(len(t) for t in traces_balanced_decoded) if traces_balanced_decoded else 0
+    # --- Lunghezza tracce al 95° percentile (usata da Optuna per lo spazio di ricerca adattivo) ---
+    # Il 95° percentile evita che outlier rari gonfino il tier e l'architettura.
+    max_trace_len = int(np.percentile([len(t) for t in traces_balanced_decoded], 95)) if traces_balanced_decoded else 0
 
     # --- Salvataggio ---
     torch.save({

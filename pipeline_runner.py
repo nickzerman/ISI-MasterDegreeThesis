@@ -25,13 +25,19 @@ import subprocess
 import requests
 import nbformat
 import papermill as pm
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, Future
 from datetime import datetime
 from pathlib import Path
 from lark import Tree, Token
 
 BASE_DIR    = Path(__file__).parent
 RESULTS_DIR = BASE_DIR / "results"
+DATA_DIR    = BASE_DIR / "data"
+
+VRAM_MIN_FREE_MB   = 4000  # MB liberi minimi prima di ritentare un notebook OOM
+VRAM_POLL_INTERVAL = 60    # secondi tra un check VRAM e l'altro
+VRAM_WAIT_TIMEOUT  = 1200  # timeout massimo attesa VRAM (20 minuti)
+VRAM_RETRY_MAX     = 2     # max retry per notebook che crashano con OOM
 
 BOT_TOKEN = "8910437774:AAHqyzkmTRtet_2ktDeJ-oJPbEbfPBYHPv8"
 CHAT_ID   = "654952374"
@@ -226,23 +232,24 @@ def get_processes():
         args += ["--k-partition", "3", "--max-depth", "5", "--window", "5"]
         return args
 
-    def _ntpc(n):
-        return {5000: 1000, 15000: 3000, 50000: 10000}[n]
+    def _ntpc(n): # num trace per cluster
+        return {3000: 600, 5000: 1000, 15000: 3000, 50000: 10000}[n]
 
     processes = []
 
     # === 1) XOR + SEQ (5) ===
     processes += [
-        {"name": "xs_c5_5k",              "tree": XOR_SEQ_5,  "args": _base(5000,  no_xor=True, no_loop=True)},
-        {"name": "xs_c10_5k_nocluster",   "tree": XOR_SEQ_10, "args": _base(5000,  no_xor=True, no_loop=True)},
-        {"name": "xs_c10_5k_cluster",     "tree": XOR_SEQ_10, "args": _base(5000,  no_xor=True, no_loop=True, no_cluster=False, ntpc=_ntpc(5000))},
+        {"name": "xs_c5_3k",              "tree": XOR_SEQ_5,  "args": _base(3000,  no_xor=True, no_loop=True)},
+        {"name": "xs_c10_3k_nocluster",   "tree": XOR_SEQ_10, "args": _base(3000,  no_xor=True, no_loop=True)},
+        {"name": "xs_c10_3k_cluster",     "tree": XOR_SEQ_10, "args": _base(3000,  no_xor=True, no_loop=True, no_cluster=False, ntpc=_ntpc(3000))},
         {"name": "xs_c10_15k_nocluster",  "tree": XOR_SEQ_10, "args": _base(15000, no_xor=True, no_loop=True)},
         {"name": "xs_c10_15k_cluster",    "tree": XOR_SEQ_10, "args": _base(15000, no_xor=True, no_loop=True, no_cluster=False, ntpc=_ntpc(15000))},
     ]
 
     # === 2) PAR + SEQ (9) ===
     processes += [
-        {"name": "ps_c5_5k", "tree": PAR_SEQ_5, "args": _base(5000, no_xor=True, no_loop=True)},
+        {"name": "ps_c5_5k_interval", "tree": PAR_SEQ_5, "args": _base(5000, no_xor=True, no_loop=True)},
+        {"name": "ps_c5_5k_nointerval", "tree": PAR_SEQ_5, "args": _base(5000, no_xor=True, no_loop=True), "no_interval": True},
     ]
     for n, ntpc_val in [(15000, _ntpc(15000)), (50000, _ntpc(50000))]:
         for clust, nc in [(True, None), (False, ntpc_val)]:
@@ -550,6 +557,51 @@ def run_notebook(name: str, nb_path: Path, output_dir: Path) -> tuple[bool, str]
 
 
 # ---------------------------------------------------------------------------
+# VRAM wait + retry
+# ---------------------------------------------------------------------------
+
+def wait_for_vram(
+    min_free_mb: int = VRAM_MIN_FREE_MB,
+    poll_interval: int = VRAM_POLL_INTERVAL,
+    timeout: int = VRAM_WAIT_TIMEOUT,
+) -> bool:
+    """Aspetta finché nvidia-smi segnala almeno min_free_mb di VRAM libera."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=10,
+            )
+            free_mb = int(result.stdout.strip().split("\n")[0])
+            if free_mb >= min_free_mb:
+                return True
+        except Exception:
+            return True  # nvidia-smi non disponibile: tenta comunque
+        time.sleep(poll_interval)
+    return False
+
+
+def run_notebook_with_retry(name: str, nb_path: Path, output_dir: Path) -> tuple[bool, str]:
+    """Esegue un notebook con retry automatico su CUDA OOM."""
+    for attempt in range(VRAM_RETRY_MAX + 1):
+        ok, out = run_notebook(name, nb_path, output_dir)
+        if ok:
+            return True, out
+        is_oom = "CUDA out of memory" in out or "OutOfMemoryError" in out
+        if is_oom and attempt < VRAM_RETRY_MAX:
+            _log(
+                f"⚠️ [{name}] OOM su {nb_path.name} (tentativo {attempt + 1}/{VRAM_RETRY_MAX}) — attendo VRAM...",
+                telegram=True,
+            )
+            if wait_for_vram():
+                _log(f"🔄 [{name}] VRAM disponibile, riprovo {nb_path.name}...")
+                continue
+        return False, out
+    return False, out
+
+
+# ---------------------------------------------------------------------------
 # Watcher thread per il progresso optuna
 # ---------------------------------------------------------------------------
 
@@ -653,6 +705,55 @@ def main(stop_on_error: bool = False):
             all_results.append({"process": pname, "steps": proc_results})
             continue
 
+        # ── Prepara stato condiviso varianti ─────────────────────────────
+        existing_variants = [nb for nb in VARIANT_STEPS if nb.exists()]
+        for nb in VARIANT_STEPS:
+            if not nb.exists():
+                _log(f"⚠️ [{pname}] {nb.name} non trovato, saltato.", telegram=True)
+
+        # Rimuove i params del run precedente per evitare trigger prematuri
+        for i in range(1, len(VARIANT_STEPS) + 1):
+            (DATA_DIR / f"v{i}_best_params.pt").unlink(missing_ok=True)
+
+        var_tmp_ids: dict[str, int | None]          = {}
+        variant_results: dict[str, tuple[bool, str]] = {}
+        variant_futures: dict[str, Future]           = {}
+        variant_executor = ThreadPoolExecutor(max_workers=max(len(existing_variants), 1))
+
+        def _launch_variant(nb: Path) -> None:
+            tmp_id = _tg_send(f"⏳ <b>[{pname}]</b> {nb.name} in corso...", silent=True)
+            var_tmp_ids[nb.name] = tmp_id
+            ok, out = run_notebook_with_retry(pname, nb, proc_dir)
+            _tg_delete(var_tmp_ids.get(nb.name))
+            variant_results[nb.name] = (ok, out)
+
+        def _stagger_watcher(done_event: threading.Event) -> None:
+            """Lancia ogni variante appena il suo v{i}_best_params.pt è disponibile.
+            Mentre optuna è attivo limita a 2 varianti contemporanee; dopo, nessun limite."""
+            launched: set[str] = set()
+            while True:
+                optuna_running = not done_event.is_set()
+                for i, nb in enumerate(VARIANT_STEPS, 1):
+                    if nb not in existing_variants:
+                        continue
+                    if nb.name not in launched and (DATA_DIR / f"v{i}_best_params.pt").exists():
+                        if optuna_running:
+                            running = sum(1 for f in variant_futures.values() if not f.done())
+                            if running >= 2:
+                                break  # aspetta il prossimo ciclo
+                        launched.add(nb.name)
+                        variant_futures[nb.name] = variant_executor.submit(_launch_variant, nb)
+                if done_event.is_set():
+                    # sweep finale senza limiti: lancia le rimanenti (tipicamente V6)
+                    for i, nb in enumerate(VARIANT_STEPS, 1):
+                        if nb not in existing_variants:
+                            continue
+                        if nb.name not in launched:
+                            launched.add(nb.name)
+                            variant_futures[nb.name] = variant_executor.submit(_launch_variant, nb)
+                    break
+                done_event.wait(5)
+
         # ── 2. Optuna ────────────────────────────────────────────────────
         if OPTUNA_STEP.exists():
             tmp_optuna = _tg_send(f"⏳ <b>[{pname}] Optuna</b>: avvio...", silent=True)
@@ -664,10 +765,14 @@ def main(stop_on_error: bool = False):
             )
             watch_t.start()
 
+            stagger_t = threading.Thread(target=_stagger_watcher, args=(stop_ev,), daemon=True)
+            stagger_t.start()
+
             ok, _ = run_notebook(pname, OPTUNA_STEP, proc_dir)
 
             stop_ev.set()
             watch_t.join(timeout=5)
+            stagger_t.join(timeout=30)
             _tg_delete(tmp_optuna)
             OPTUNA_PROGRESS_FILE.unlink(missing_ok=True)
 
@@ -677,35 +782,23 @@ def main(stop_on_error: bool = False):
             proc_results.append({"step": OPTUNA_STEP.name, "success": ok})
             if not ok and stop_on_error:
                 _log(f"🛑 [{pname}] stop_on_error, salto al prossimo processo.", telegram=True)
+                for f in list(variant_futures.values()):
+                    f.result()
+                variant_executor.shutdown(wait=False)
                 all_results.append({"process": pname, "steps": proc_results})
                 continue
         else:
             _log(f"⚠️ [{pname}] {OPTUNA_STEP.name} non trovato, saltato.", telegram=True)
             proc_results.append({"step": OPTUNA_STEP.name, "success": None})
+            # Senza optuna lancia tutte le varianti immediatamente
+            for nb in existing_variants:
+                variant_futures[nb.name] = variant_executor.submit(_launch_variant, nb)
 
-        # ── 3. Varianti in parallelo ──────────────────────────────────────
-        existing_variants = [nb for nb in VARIANT_STEPS if nb.exists()]
-        for nb in VARIANT_STEPS:
-            if not nb.exists():
-                _log(f"⚠️ [{pname}] {nb.name} non trovato, saltato.", telegram=True)
-
-        # Messaggi temporanei: uno per ogni variante
-        var_tmp_ids: dict[str, int | None] = {
-            nb.name: _tg_send(f"⏳ <b>[{pname}]</b> {nb.name} in corso...", silent=True)
-            for nb in existing_variants
-        }
-
-        variant_results: dict[str, tuple[bool, str]] = {}
-        with ThreadPoolExecutor(max_workers=len(existing_variants)) as ex:
-            futures = {
-                ex.submit(run_notebook, pname, nb, proc_dir): nb
-                for nb in existing_variants
-            }
-            for future in as_completed(futures):
-                nb         = futures[future]
-                ok, out    = future.result()
-                variant_results[nb.name] = (ok, out)
-                _tg_delete(var_tmp_ids.get(nb.name))
+        # ── 3. Attende le varianti e raccoglie i risultati ────────────────
+        for nb in existing_variants:
+            if nb.name in variant_futures:
+                variant_futures[nb.name].result()
+        variant_executor.shutdown(wait=True)
 
         # Messaggi permanenti: risultati in ordine 1→6
         for nb in VARIANT_STEPS:
