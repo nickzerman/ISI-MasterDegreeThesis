@@ -58,7 +58,7 @@ def run(n_trials=50, fixed_unified=None, data_file=None):
             predict_task=True,
         ).to(device)
         try:
-            return train_unified(model, data, config, device, trial=trial)
+            return train_unified(model, data, config, device, trial=trial)[0]
         finally:
             del model
             gc.collect()

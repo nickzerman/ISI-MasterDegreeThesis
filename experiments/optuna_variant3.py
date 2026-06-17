@@ -63,7 +63,7 @@ def run(n_trials_task=50, n_trials_region=50, n_trials_time=50, fixed_task=None,
             n_layer=config['n_layer'],
         ).to(device)
         try:
-            return train_task(model, data, config, device, data_key='tasks', trial=trial)
+            return train_task(model, data, config, device, data_key='tasks', trial=trial)[0]
         finally:
             del model
             gc.collect()
@@ -92,7 +92,7 @@ def run(n_trials_task=50, n_trials_region=50, n_trials_time=50, fixed_task=None,
             n_layer=config['n_layer'],
         ).to(device)
         try:
-            return train_region(model, data, config, device, trial=trial)
+            return train_region(model, data, config, device, trial=trial)[0]
         finally:
             del model
             gc.collect()
@@ -122,7 +122,7 @@ def run(n_trials_task=50, n_trials_region=50, n_trials_time=50, fixed_task=None,
             separated_regions=True,
         ).to(device)
         try:
-            return train_time_v2(model, data, config, device, trial=trial)
+            return train_time_v2(model, data, config, device, trial=trial)[0]
         finally:
             del model
             gc.collect()

@@ -56,7 +56,7 @@ def run(n_trials_task=50, n_trials_time=50, fixed_task=None, fixed_time=None, da
             n_layer=config['n_layer'],
         ).to(device)
         try:
-            return train_task(model, data, config, device, data_key='complete', trial=trial)
+            return train_task(model, data, config, device, data_key='complete', trial=trial)[0]
         finally:
             del model
             gc.collect()
@@ -85,7 +85,7 @@ def run(n_trials_task=50, n_trials_time=50, fixed_task=None, fixed_time=None, da
             separated_regions=False,
         ).to(device)
         try:
-            return train_time(model, data, config, device, trial=trial)
+            return train_time(model, data, config, device, trial=trial)[0]
         finally:
             del model
             gc.collect()

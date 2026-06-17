@@ -61,7 +61,7 @@ def run(n_trials_task=50, n_trials_time=50, fixed_task=None, fixed_time=None, da
             separated=True,
         ).to(device)
         try:
-            return train_task_separated(model, data, config, device, trial=trial)
+            return train_task_separated(model, data, config, device, trial=trial)[0]
         finally:
             del model
             gc.collect()
@@ -91,7 +91,7 @@ def run(n_trials_task=50, n_trials_time=50, fixed_task=None, fixed_time=None, da
             separated_regions=True,
         ).to(device)
         try:
-            return train_time_v2(model, data, config, device, trial=trial)
+            return train_time_v2(model, data, config, device, trial=trial)[0]
         finally:
             del model
             gc.collect()

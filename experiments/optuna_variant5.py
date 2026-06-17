@@ -60,7 +60,7 @@ def run(n_trials_task=50, n_trials_unified=50, fixed_task=None, fixed_unified=No
             n_layer=config['n_layer'],
         ).to(device)
         try:
-            return train_task(model, data, config, device, data_key='tasks', trial=trial)
+            return train_task(model, data, config, device, data_key='tasks', trial=trial)[0]
         finally:
             del model
             gc.collect()
@@ -91,7 +91,7 @@ def run(n_trials_task=50, n_trials_unified=50, fixed_task=None, fixed_unified=No
             predict_task=False,
         ).to(device)
         try:
-            return train_unified_onlyregion(model, data, config, device, trial=trial)
+            return train_unified_onlyregion(model, data, config, device, trial=trial)[0]
         finally:
             del model
             gc.collect()

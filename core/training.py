@@ -18,6 +18,7 @@ def train_task(model, data, param, device, data_key='complete', trial=None, prin
         swa_scheduler = SWALR(optimizer, swa_lr=param.get('swa_lr', param['lr'] / 10))
 
     best_val = float('inf')
+    best_train_at_best_val = float('inf')
     best_state = None
     swa_reached = False
     no_improve = 0
@@ -43,6 +44,7 @@ def train_task(model, data, param, device, data_key='complete', trial=None, prin
 
             if val_loss < best_val:
                 best_val = val_loss
+                best_train_at_best_val = losses['train'].item()
                 no_improve = 0
                 best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             else:
@@ -67,7 +69,7 @@ def train_task(model, data, param, device, data_key='complete', trial=None, prin
     elif best_state is not None:
         model.load_state_dict(best_state)
 
-    return best_val
+    return best_val, best_train_at_best_val
 
 def train_task_separated(model, data, param, device, trial=None, printing=False):
     """Train TaskTransformer con separated=True (dual head task + region)."""
@@ -86,6 +88,7 @@ def train_task_separated(model, data, param, device, trial=None, printing=False)
         swa_scheduler = SWALR(optimizer, swa_lr=param.get('swa_lr', param['lr'] / 10))
 
     best_val = float('inf')
+    best_train_at_best_val = float('inf')
     best_state = None
     swa_reached = False
     no_improve = 0
@@ -118,6 +121,7 @@ def train_task_separated(model, data, param, device, trial=None, printing=False)
 
             if val_loss < best_val:
                 best_val = val_loss
+                best_train_at_best_val = losses['train'].item()
                 no_improve = 0
                 best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             else:
@@ -142,7 +146,7 @@ def train_task_separated(model, data, param, device, trial=None, printing=False)
     elif best_state is not None:
         model.load_state_dict(best_state)
 
-    return best_val
+    return best_val, best_train_at_best_val
 
 def train_region(model, data, param, device, trial=None, printing=False):
     """Train RegionTransformer."""
@@ -161,6 +165,7 @@ def train_region(model, data, param, device, trial=None, printing=False):
         swa_scheduler = SWALR(optimizer, swa_lr=param.get('swa_lr', param['lr'] / 10))
 
     best_val = float('inf')
+    best_train_at_best_val = float('inf')
     best_state = None
     swa_reached = False
     no_improve = 0
@@ -186,6 +191,7 @@ def train_region(model, data, param, device, trial=None, printing=False):
 
             if val_loss < best_val:
                 best_val = val_loss
+                best_train_at_best_val = losses['train'].item()
                 no_improve = 0
                 best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             else:
@@ -210,7 +216,7 @@ def train_region(model, data, param, device, trial=None, printing=False):
     elif best_state is not None:
         model.load_state_dict(best_state)
 
-    return best_val
+    return best_val, best_train_at_best_val
 
 def train_time(model, data, param, device, trial=None, printing=False):
     """Train TimeTransformer (not separated, task+region together)."""
@@ -229,6 +235,7 @@ def train_time(model, data, param, device, trial=None, printing=False):
         swa_scheduler = SWALR(optimizer, swa_lr=param.get('swa_lr', param['lr'] / 10))
 
     best_val = float('inf')
+    best_train_at_best_val = float('inf')
     best_state = None
     swa_reached = False
     no_improve = 0
@@ -254,6 +261,7 @@ def train_time(model, data, param, device, trial=None, printing=False):
 
             if val_loss < best_val:
                 best_val = val_loss
+                best_train_at_best_val = losses['train'].item()
                 no_improve = 0
                 best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             else:
@@ -278,7 +286,7 @@ def train_time(model, data, param, device, trial=None, printing=False):
     elif best_state is not None:
         model.load_state_dict(best_state)
 
-    return best_val
+    return best_val, best_train_at_best_val
 
 def train_time_v2(model, data, param, device, trial=None, printing=False):
     """Train TimeTransformer (separated regions)."""
@@ -299,6 +307,7 @@ def train_time_v2(model, data, param, device, trial=None, printing=False):
         swa_scheduler = SWALR(optimizer, swa_lr=param.get('swa_lr', param['lr'] / 10))
 
     best_val = float('inf')
+    best_train_at_best_val = float('inf')
     best_state = None
     swa_reached = False
     no_improve = 0
@@ -324,6 +333,7 @@ def train_time_v2(model, data, param, device, trial=None, printing=False):
 
             if val_loss < best_val:
                 best_val = val_loss
+                best_train_at_best_val = losses['train'].item()
                 no_improve = 0
                 best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             else:
@@ -348,7 +358,7 @@ def train_time_v2(model, data, param, device, trial=None, printing=False):
     elif best_state is not None:
         model.load_state_dict(best_state)
 
-    return best_val
+    return best_val, best_train_at_best_val
 
 def train_unified(model, data, param, device, trial=None, printing=False):
     """Train UnifiedTransformer (Kendall loss interna al modello)."""
@@ -369,6 +379,7 @@ def train_unified(model, data, param, device, trial=None, printing=False):
         swa_scheduler = SWALR(optimizer, swa_lr=param.get('swa_lr', param['lr'] / 10))
 
     best_val = float('inf')
+    best_train_at_best_val = float('inf')
     best_state = None
     swa_reached = False
     no_improve = 0
@@ -395,6 +406,7 @@ def train_unified(model, data, param, device, trial=None, printing=False):
 
             if val_loss < best_val:
                 best_val = val_loss
+                best_train_at_best_val = losses['train'].item()
                 no_improve = 0
                 best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             else:
@@ -419,7 +431,7 @@ def train_unified(model, data, param, device, trial=None, printing=False):
     elif best_state is not None:
         model.load_state_dict(best_state)
 
-    return best_val
+    return best_val, best_train_at_best_val
 
 def train_unified_onlyregion(model, data, param, device, trial=None, printing=False):
     """Train UnifiedTransformer (Kendall loss interna al modello)."""
@@ -440,6 +452,7 @@ def train_unified_onlyregion(model, data, param, device, trial=None, printing=Fa
         swa_scheduler = SWALR(optimizer, swa_lr=param.get('swa_lr', param['lr'] / 10))
 
     best_val = float('inf')
+    best_train_at_best_val = float('inf')
     best_state = None
     swa_reached = False
     no_improve = 0
@@ -466,6 +479,7 @@ def train_unified_onlyregion(model, data, param, device, trial=None, printing=Fa
 
             if val_loss < best_val:
                 best_val = val_loss
+                best_train_at_best_val = losses['train'].item()
                 no_improve = 0
                 best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             else:
@@ -490,7 +504,7 @@ def train_unified_onlyregion(model, data, param, device, trial=None, printing=Fa
     elif best_state is not None:
         model.load_state_dict(best_state)
 
-    return best_val
+    return best_val, best_train_at_best_val
 
 def train_unified_taskregion(model, data, param, device, trial=None, printing=False):
     """Train UnifiedTransformer (Kendall loss interna al modello)."""
@@ -509,6 +523,7 @@ def train_unified_taskregion(model, data, param, device, trial=None, printing=Fa
         swa_scheduler = SWALR(optimizer, swa_lr=param.get('swa_lr', param['lr'] / 10))
 
     best_val = float('inf')
+    best_train_at_best_val = float('inf')
     best_state = None
     swa_reached = False
     no_improve = 0
@@ -535,6 +550,7 @@ def train_unified_taskregion(model, data, param, device, trial=None, printing=Fa
 
             if val_loss < best_val:
                 best_val = val_loss
+                best_train_at_best_val = losses['train'].item()
                 no_improve = 0
                 best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             else:
@@ -559,4 +575,4 @@ def train_unified_taskregion(model, data, param, device, trial=None, printing=Fa
     elif best_state is not None:
         model.load_state_dict(best_state)
 
-    return best_val
+    return best_val, best_train_at_best_val
