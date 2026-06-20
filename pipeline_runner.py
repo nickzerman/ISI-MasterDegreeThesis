@@ -22,6 +22,7 @@ import html
 import time
 import json
 import pickle
+import signal
 import tempfile
 import threading
 import subprocess
@@ -47,7 +48,7 @@ CHECKPOINT_FILE = RESULTS_DIR / "all_variants_results.json"
 BOT_TOKEN = "8910437774:AAHqyzkmTRtet_2ktDeJ-oJPbEbfPBYHPv8"
 CHAT_ID   = "654952374"
 
-OPTUNA_PROGRESS_FILE = Path("/tmp/optuna_pipeline_progress.json")
+OPTUNA_PROGRESS_FILE = Path(tempfile.gettempdir()) / "optuna_pipeline_progress.json"
 
 # ---------------------------------------------------------------------------
 # 171 processi.
@@ -521,6 +522,9 @@ def _extract_all_outputs(nb_path: Path) -> str:
                 text = "".join(out.get("text", []))
             elif otype in ("execute_result", "display_data"):
                 text = "".join(out.get("data", {}).get("text/plain", []))
+            elif otype == "error":
+                # Include il traceback completo — necessario per rilevare CUDA OOM
+                text = "\n".join(out.get("traceback", [])) + "\n" + out.get("ename", "") + ": " + out.get("evalue", "")
             else:
                 continue
             text = text.strip()
@@ -530,35 +534,111 @@ def _extract_all_outputs(nb_path: Path) -> str:
     return "\n---\n".join(chunks)
 
 
+def _popen_isolated(cmd: list, env: dict) -> tuple[subprocess.Popen, callable]:
+    """Spawna un subprocess in un nuovo process group (cross-platform).
+    Restituisce (proc, kill_fn) dove kill_fn() uccide l'intero albero."""
+    if sys.platform == "win32":
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            env=env,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+        )
+        kill_fn = lambda: subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+            capture_output=True,
+        )
+    else:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            env=env,
+            preexec_fn=os.setsid,
+        )
+        # Salva PGID subito: rimane valido anche dopo che il subprocess esce e viene reaped
+        pgid = os.getpgid(proc.pid)
+
+        def kill_fn():
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                pass
+
+    return proc, kill_fn
+
+
 def run_notebook(name: str, nb_path: Path, output_dir: Path) -> tuple[bool, str]:
+    """Esegue il notebook in un subprocess isolato con nuovo process group.
+    Al termine (successo, errore o timeout) garantisce la terminazione dell'intero
+    albero di processi figlio — incluso il kernel Jupyter — su Linux e Windows."""
     output_path = output_dir / nb_path.name
     _log(f"▶ [{name}] Avvio notebook: {nb_path.name}")
     t0 = time.time()
 
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(BASE_DIR)
+
+    pm_script = (
+        "import papermill as pm\n"
+        f"pm.execute_notebook(\n"
+        f"    {repr(str(nb_path))},\n"
+        f"    {repr(str(output_path))},\n"
+        f"    kernel_name='python3',\n"
+        f"    progress_bar=False,\n"
+        f"    request_save_on_cell_execute=True,\n"
+        f"    cwd={repr(str(BASE_DIR))},\n"
+        f")\n"
+    )
+
+    tmp_script = None
+    kill_fn = None
     try:
-        pm.execute_notebook(
-            str(nb_path),
-            str(output_path),
-            kernel_name="python3",
-            progress_bar=False,
-            request_save_on_cell_execute=True,
-            cwd=str(BASE_DIR),
-        )
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".py", delete=False, dir=BASE_DIR, prefix="_pm_nb_"
+        ) as f:
+            f.write(pm_script)
+            tmp_script = f.name
+
+        proc, kill_fn = _popen_isolated([sys.executable, tmp_script], env)
+
+        try:
+            stdout, _ = proc.communicate(timeout=7200)
+        except subprocess.TimeoutExpired:
+            _log(f"⚠️ [{name}] TIMEOUT {nb_path.name} — terminazione forzata")
+            kill_fn()
+            stdout, _ = proc.communicate()
+            elapsed = time.time() - t0
+            _log(f"❌ [{name}] TIMEOUT: {nb_path.name} ({elapsed:.0f}s)")
+            return False, "timeout"
+
         elapsed  = time.time() - t0
         full_out = _extract_all_outputs(output_path)
-        _log(f"✅ [{name}] Completato: {nb_path.name} ({elapsed:.0f}s)")
-        return True, full_out
 
-    except pm.PapermillExecutionError as e:
-        elapsed = time.time() - t0
-        err_msg = str(e)[:800]
-        _log(f"❌ [{name}] ERRORE: {nb_path.name} ({elapsed:.0f}s)\n{err_msg}")
-        return False, err_msg
+        if proc.returncode == 0:
+            _log(f"✅ [{name}] Completato: {nb_path.name} ({elapsed:.0f}s)")
+            return True, full_out
+        else:
+            err_msg = (stdout or "")[-800:]
+            _log(f"❌ [{name}] ERRORE (exit {proc.returncode}): {nb_path.name} ({elapsed:.0f}s)\n{err_msg}")
+            # Combina output notebook + stderr subprocess: l'OOM check trova la stringa in uno dei due
+            combined = "\n---\n".join(filter(None, [full_out, err_msg]))
+            return False, combined
 
     except Exception as e:
         err_msg = str(e)
         _log(f"❌ [{name}] ECCEZIONE: {nb_path.name}\n{err_msg}")
         return False, err_msg
+
+    finally:
+        # Sempre: termina l'albero di processi per eliminare kernel orfani
+        if kill_fn is not None:
+            kill_fn()
+        if tmp_script:
+            Path(tmp_script).unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
