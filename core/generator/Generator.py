@@ -2,6 +2,13 @@ from pm4py.objects.petri_net.semantics import enabled_transitions, execute
 import random
 from core import PetriNetP
 
+# Tetto di sicurezza sulle ripetizioni di uno stesso loop dentro una singola traccia.
+# Una foglia "pura" del classificatore (o un albero con la sola classe "back") predice
+# sempre ripetizione: ne' predict ne' predict_proba possono generare la classe assente,
+# causando un loop infinito. Oltre questa soglia forziamo l'uscita. Non tocca la decisione
+# del classificatore nei casi normali: un loop sano esce molto prima di MAX_LOOP_ITERS.
+MAX_LOOP_ITERS = 20
+
 def removeBackLoop(trace):
     """
         Remove back_Ln from trace
@@ -163,6 +170,7 @@ def generateTraceCond(net, initial_marking, final_marking, check, classifier_dic
     loop = tuple(["end_L"]) + tuple(["back_L"])
 
     previous_step = ""
+    loop_iters = {}  # Quante volte ogni loop ha gia' ripetuto in questa traccia (per il cap di sicurezza)
 
     while current_marking != final_marking:  # Fino a quando il marking non corrisponde al finale, quindi fino a quando non ho finito di generare la traccia
         if len(trace) > limit:
@@ -188,7 +196,11 @@ def generateTraceCond(net, initial_marking, final_marking, check, classifier_dic
             else:
                 clf, encoding_clf, pad_clf = classifier_dict_loop[loop_region]
 
-                if clf.get_depth() == 0:  # Nessuno split: predict sarebbe deterministico (sempre "back" -> loop infinito).
+                end_available = any(t.name == "end_" + loop_region for t in loops_end)
+                if loop_iters.get(loop_region, 0) >= MAX_LOOP_ITERS and end_available:
+                    # Rete di sicurezza: troppe ripetizioni (classificatore degenere) -> forzo l'uscita.
+                    pred_class = 1
+                elif clf.get_depth() == 0:  # Nessuno split: predict sarebbe deterministico (sempre "back" -> loop infinito).
                     proba = clf.predict_proba([[0] * pad_clf])[0]  # Campiono dalla distribuzione marginale, come per gli XOR a depth 0.
                     pred_class = random.choices(clf.classes_, weights=proba, k=1)[0]
                 else:
@@ -208,6 +220,7 @@ def generateTraceCond(net, initial_marking, final_marking, check, classifier_dic
                 if pred_class == 1:
                     choice = next((t for t in loops_end if t.name == "end_" + loop_region), None)
                 else:
+                    loop_iters[loop_region] = loop_iters.get(loop_region, 0) + 1  # Conto la ripetizione
                     choice = next((t for t in loops_end if t.name == "back_" + loop_region), None)
 
             trace.append(choice.name)
@@ -291,7 +304,7 @@ class Generator:
                 generateTrace(self.net.net, self.net.initial_marking, self.net.final_marking, ["P", "X", "L"], clean, no_interval))
         return self.generatedTraces
 
-    def generateTraceCond(self, classifier_dict_loop, classifier_dict_xor, limit=100, no_interval=False):
+    def generateTraceCond(self, classifier_dict_loop, classifier_dict_xor, limit=1000, no_interval=False):
         self.generatedTraces = []
 
         # Uso un while per assicurarmi di avere esattamente 'num_traces' tracce valide
