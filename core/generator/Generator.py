@@ -188,18 +188,22 @@ def generateTraceCond(net, initial_marking, final_marking, check, classifier_dic
             else:
                 clf, encoding_clf, pad_clf = classifier_dict_loop[loop_region]
 
-                reversed_trace = trace[::-1][:pad_clf] # Solo gli ultimi pad_clf elementi (in teoria dovrebbe andare bene)
-                padded_trace = reversed_trace + ["PAD"] * (pad_clf - len(reversed_trace))
-
-                # Se il contesto contiene token mai visti in training (OOD), non possiamo codificare.
-                # Fallback: usa predict_proba su vettore neutro (distribuzione marginale del classificatore)
-                # e campiona da essa, come già fatto per gli XOR a depth 0.
-                if any(step not in encoding_clf for step in padded_trace):
-                    proba = clf.predict_proba([[0] * pad_clf])[0]
+                if clf.get_depth() == 0:  # Nessuno split: predict sarebbe deterministico (sempre "back" -> loop infinito).
+                    proba = clf.predict_proba([[0] * pad_clf])[0]  # Campiono dalla distribuzione marginale, come per gli XOR a depth 0.
                     pred_class = random.choices(clf.classes_, weights=proba, k=1)[0]
                 else:
-                    encoded_trace = [encoding_clf[step] for step in padded_trace]
-                    pred_class = clf.predict([encoded_trace])[0]
+                    reversed_trace = trace[::-1][:pad_clf] # Solo gli ultimi pad_clf elementi (in teoria dovrebbe andare bene)
+                    padded_trace = reversed_trace + ["PAD"] * (pad_clf - len(reversed_trace))
+
+                    # Se il contesto contiene token mai visti in training (OOD), non possiamo codificare.
+                    # Fallback: usa predict_proba su vettore neutro (distribuzione marginale del classificatore)
+                    # e campiona da essa, come già fatto per gli XOR a depth 0.
+                    if any(step not in encoding_clf for step in padded_trace):
+                        proba = clf.predict_proba([[0] * pad_clf])[0]
+                        pred_class = random.choices(clf.classes_, weights=proba, k=1)[0]
+                    else:
+                        encoded_trace = [encoding_clf[step] for step in padded_trace]
+                        pred_class = clf.predict([encoded_trace])[0]
 
                 if pred_class == 1:
                     choice = next((t for t in loops_end if t.name == "end_" + loop_region), None)
