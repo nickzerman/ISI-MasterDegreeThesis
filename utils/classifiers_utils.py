@@ -19,10 +19,10 @@ def create_loop_data(loop, traces):
     y = []
     for trace in traces: # Per ogni traccia, per ogni back o end aggiungo alla lista delle tracce per questo loop
         for i, element in enumerate(trace):
-            if element.startswith("back_" + loop):
+            if element == "back_" + loop:
                 x.append(trace[:i])
                 y.append(0)
-            elif element.startswith("end_" + loop):
+            elif element == "end_" + loop:
                 x.append(trace[:i])
                 y.append(1)
 

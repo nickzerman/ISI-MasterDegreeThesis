@@ -70,7 +70,7 @@ def generateTrace(net, initial_marking, final_marking, check, clean, no_interval
 
         if no_interval and len(previous_step.split("_")) > 1 and previous_step.split("_")[1][0]=="T" and previous_step.split("_")[0]!="end":
             step = previous_step.split("_")[1]
-            choice = next((t for t in transitions if t.name.startswith("end_" + step)), None)
+            choice = next((t for t in transitions if t.name == "end_" + step), None)
             trace.append(choice.name)
             current_marking = execute(choice, net, current_marking)
             previous_step = choice.name
@@ -172,7 +172,7 @@ def generateTraceCond(net, initial_marking, final_marking, check, classifier_dic
 
         if no_interval and len(previous_step.split("_")) > 1 and previous_step.split("_")[1][0]=="T" and previous_step.split("_")[0]!="end":
             step = previous_step.split("_")[1]
-            choice = next((t for t in transitions if t.name.startswith("end_" + step)), None)
+            choice = next((t for t in transitions if t.name == "end_" + step), None)
             trace.append(choice.name)
             current_marking = execute(choice, net, current_marking)
             previous_step = choice.name
@@ -202,9 +202,9 @@ def generateTraceCond(net, initial_marking, final_marking, check, classifier_dic
                     pred_class = clf.predict([encoded_trace])[0]
 
                 if pred_class == 1:
-                    choice = next((t for t in loops_end if t.name.startswith("end_" + loop_region)), None)
+                    choice = next((t for t in loops_end if t.name == "end_" + loop_region), None)
                 else:
-                    choice = next((t for t in loops_end if t.name.startswith("back_" + loop_region)), None)
+                    choice = next((t for t in loops_end if t.name == "back_" + loop_region), None)
 
             trace.append(choice.name)
             current_marking = execute(choice, net, current_marking)
@@ -220,7 +220,7 @@ def generateTraceCond(net, initial_marking, final_marking, check, classifier_dic
                     proba = clf.predict_proba([[0] * pad_clf])[0] # Prendo le probabilità
                     pred_class = random.choices(clf.classes_, weights=proba, k=1)[0] # E tiro a caso con quelle probabilità
                     branch = class_to_branch[pred_class]
-                    choice = next((t for t in transitions if t.name.startswith(branch)), None)
+                    choice = next((t for t in transitions if t.name == branch), None)
                 else: # Altrimenti guardo la predizione del classificatore
                     reversed_trace = trace[:-1][::-1][:pad_clf]  # Taglio l'ultimo step (= start_X)
                     padded_trace = reversed_trace + ["PAD"] * (pad_clf - len(reversed_trace))
@@ -234,7 +234,7 @@ def generateTraceCond(net, initial_marking, final_marking, check, classifier_dic
                         pred_class = clf.predict([encoded_trace])[0]
 
                     branch = class_to_branch[pred_class]
-                    choice = next((t for t in transitions if t.name.startswith(branch)), None)
+                    choice = next((t for t in transitions if t.name == branch), None)
 
             trace.append(choice.name)
             current_marking = execute(choice, net, current_marking)
