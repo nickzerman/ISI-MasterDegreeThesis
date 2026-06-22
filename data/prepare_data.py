@@ -359,8 +359,7 @@ def main(args):
         miner.root.name = task
         num_traces_for_task = 0
         for trace in traces_balanced_decoded:
-            if task in trace:
-                idx = trace.index(task)
+            for idx in [i for i, step in enumerate(trace) if step == task]:  # TUTTE le occorrenze (non solo la prima: serve per i loop)
                 miner.fit_trace(list(reversed(trace[:idx])), args.max_depth)
                 num_traces_for_task += 1
 
