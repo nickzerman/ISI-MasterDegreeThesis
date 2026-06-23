@@ -44,8 +44,7 @@ VRAM_WAIT_TIMEOUT  = 1200  # timeout massimo attesa VRAM (20 minuti)
 VRAM_RETRY_MAX     = 2     # max retry per notebook che crashano con OOM
 
 NOTEBOOK_TIMEOUT   = 1800  # timeout (s) per i notebook variante (training di UN modello)
-OPTUNA_TIMEOUT     = None  # run_all_optuna fa 6 varianti x N trial: NON deve usare il timeout delle varianti.
-                           # None = nessun timeout (termina da solo, n_trials finito). Metti un numero (s) per un tetto di sicurezza.
+OPTUNA_TIMEOUT     = 7200  # run_all_optuna fa 6 varianti x N trial: tetto di sicurezza 2 ore.
 
 CHECKPOINT_FILE = RESULTS_DIR / "all_variants_results.json"
 
@@ -868,7 +867,7 @@ def main(stop_on_error: bool = False):
             stagger_t = threading.Thread(target=_stagger_watcher, args=(stop_ev,), daemon=True)
             stagger_t.start()
 
-            ok, _ = run_notebook(pname, OPTUNA_STEP, proc_dir)
+            ok, _ = run_notebook(pname, OPTUNA_STEP, proc_dir, timeout=OPTUNA_TIMEOUT)
 
             stop_ev.set()
             watch_t.join(timeout=5)
