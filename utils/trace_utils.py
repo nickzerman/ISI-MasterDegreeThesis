@@ -213,4 +213,8 @@ def assign_time(trace, times_map, window=10):
 
         reversed_trace.pop()
 
-    return times_map["RESIDUALS"]
+    # Fallback: nessun pattern ha fatto match. Di norma RESIDUALS è presente ed è il tempo
+    # minimo; se per qualche motivo mancasse, ripiego sul minimo dei tempi noti.
+    if "RESIDUALS" in times_map:
+        return times_map["RESIDUALS"]
+    return min(times_map.values()) if times_map else 0.0

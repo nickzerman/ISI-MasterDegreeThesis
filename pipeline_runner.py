@@ -154,7 +154,7 @@ def get_processes():
         ])
     ])
 
-    LOOP_SEQ_8 = Tree('loop', [Tree('sequential', [Tree('loop', [Tree('sequential', [Tree('loop', [Tree('sequential', [Tree('loop', [Tree('sequential', [Tree('loop', [Tree('task', [Token('NAME', 'T1')])]), Tree('loop', [Tree('sequential', [Tree('loop', [Tree('sequential', [Tree('loop', [Tree('task', [Token('NAME', 'T2')])]), Tree('loop', [Tree('task', [Token('NAME', 'T3')])])])]), Tree('loop', [Tree('sequential', [Tree('loop', [Tree('task', [Token('NAME', 'T4')])]), Tree('loop', [Tree('task', [Token('NAME', 'T5')])])])])])])])]), Tree('loop', [Tree('task', [Token('NAME', 'T6')])])])]), Tree('loop', [Tree('sequential', [Tree('loop', [Tree('task', [Token('NAME', 'T7')])]), Tree('task', [Token('NAME', 'T8')])])])])]), Tree('loop', [Tree('sequential', [Tree('loop', [Tree('sequential', [Tree('loop', [Tree('sequential', [Tree('loop', [Tree('task', [Token('NAME', 'T9')])]), Tree('loop', [Tree('sequential', [Tree('loop', [Tree('sequential', [Tree('loop', [Tree('task', [Token('NAME', 'T10')])]), Tree('loop', [Tree('sequential', [Tree('loop', [Tree('task', [Token('NAME', 'T11')])]), Tree('task', [Token('NAME', 'T12')])])])])]), Tree('loop', [Tree('task', [Token('NAME', 'T13')])]), Tree('loop', [Tree('task', [Token('NAME', 'T14')])]), Tree('task', [Token('NAME', 'T15')])])])])]), Tree('loop', [Tree('sequential', [Tree('task', [Token('NAME', 'T16')]), Tree('loop', [Tree('task', [Token('NAME', 'T17')])])])])])]), Tree('loop', [Tree('sequential', [Tree('task', [Token('NAME', 'T18')]), Tree('loop', [Tree('task', [Token('NAME', 'T19')])]), Tree('task', [Token('NAME', 'T20')])])])])])])])
+    LOOP_SEQ_5 = Tree('loop', [Tree('sequential', [Tree('loop', [Tree('sequential', [Tree('loop', [Tree('sequential', [Tree('loop', [Tree('task', [Token('NAME', 'T1')])]), Tree('loop', [Tree('sequential', [Tree('loop', [Tree('task', [Token('NAME', 'T2')])]), Tree('task', [Token('NAME', 'T3')])])])])]), Tree('loop', [Tree('sequential', [Tree('loop', [Tree('task', [Token('NAME', 'T4')])]), Tree('loop', [Tree('sequential', [Tree('loop', [Tree('task', [Token('NAME', 'T5')])]), Tree('loop', [Tree('task', [Token('NAME', 'T6')])]), Tree('loop', [Tree('task', [Token('NAME', 'T7')])])])])])])])]), Tree('loop', [Tree('sequential', [Tree('task', [Token('NAME', 'T8')]), Tree('task', [Token('NAME', 'T9')])])])])])
 
     LOOP_XOR_5 = Tree('loop', [
         Tree('xor', [
@@ -239,7 +239,7 @@ def get_processes():
         return args
 
     def _ntpc(n): # num trace per cluster
-        return {3000: 600, 5000: 1000, 15000: 3000, 50000: 10000}[n]
+        return {3000: 600, 5000: 1000, 10000: 2000, 15000: 3000, 20000: 4000, 30000: 6000, 50000: 10000}[n]
 
     processes = []
 
@@ -289,11 +289,11 @@ def get_processes():
     for cov_name, kw in [("cov0", dict(no_xor=True, no_loop=True)), ("cov05", dict(no_xor=True, coverage=0.5)), ("cov1", dict(no_xor=True, coverage=1.0))]:
         processes.append({"name": f"ls_c3_5k_{cov_name}", "tree": LOOP_SEQ_3, "args": _base(5000, **kw)})
 
-    for n, ntpc_val in [(15000, _ntpc(15000)), (50000, _ntpc(50000))]:
-        for clust, nc in [(True, None), (False, ntpc_val)]:
+    for n, ntpc_val in [(5000, _ntpc(5000)), (15000, _ntpc(15000))]:
+        for clust, nc in [(True, None)]:  # solo nocluster: tracce loop+seq lunghe e tutte uniche -> clustering Levenshtein O(L^2) infattibile e poco utile
             for cov_name, kw in [("cov0", dict(no_xor=True, no_loop=True)), ("cov05", dict(no_xor=True, coverage=0.5)), ("cov1", dict(no_xor=True, coverage=1.0))]:
-                name = f"ls_c8_{n//1000}k_{'nocluster' if clust else 'cluster'}_{cov_name}"
-                processes.append({"name": name, "tree": LOOP_SEQ_8, "args": _base(n, no_cluster=clust, ntpc=nc, **kw)})
+                name = f"ls_c5_{n//1000}k_{'nocluster' if clust else 'cluster'}_{cov_name}"
+                processes.append({"name": name, "tree": LOOP_SEQ_5, "args": _base(n, no_cluster=clust, ntpc=nc, **kw)})
 
     # === 5) LOOP + XOR (15) ===
     for cov_name, kw in [("cov0", dict(no_xor=True, no_loop=True)), ("cov05", dict(no_xor=True, coverage=0.5)), ("cov1", dict(no_xor=True, coverage=1.0))]:
@@ -309,8 +309,8 @@ def get_processes():
     for cov_name, kw in [("cov0", dict(no_xor=True, no_loop=True)), ("cov05", dict(no_xor=True, coverage=0.5)), ("cov1", dict(no_xor=True, coverage=1.0))]:
         processes.append({"name": f"lp_c9_5k_{cov_name}", "tree": LOOP_PAR_9, "args": _base(5000, **kw)})
 
-    for n, ntpc_val in [(15000, _ntpc(15000)), (50000, _ntpc(50000))]:
-        for clust, nc in [(True, None), (False, ntpc_val)]:
+    for n, ntpc_val in [(15000, _ntpc(15000)), (30000, _ntpc(30000))]:
+        for clust, nc in [(True, None)]:  # solo nocluster: par-in-loop -> 100% tracce uniche (anche con nointerval) -> clustering caro e senza bilanciamento utile
             for intv, ni in [("interval", False), ("nointerval", True)]:
                 for cov_name, kw in [("cov0", dict(no_xor=True, no_loop=True)), ("cov05", dict(no_xor=True, coverage=0.5)), ("cov1", dict(no_xor=True, coverage=1.0))]:
                     name = f"lp_c21_{n//1000}k_{'nocluster' if clust else 'cluster'}_{intv}_{cov_name}"
@@ -606,7 +606,7 @@ def run_notebook(name: str, nb_path: Path, output_dir: Path) -> tuple[bool, str]
         proc, kill_fn = _popen_isolated([sys.executable, tmp_script], env)
 
         try:
-            stdout, _ = proc.communicate(timeout=7200)
+            stdout, _ = proc.communicate(timeout=1800)
         except subprocess.TimeoutExpired:
             _log(f"⚠️ [{name}] TIMEOUT {nb_path.name} — terminazione forzata")
             kill_fn()

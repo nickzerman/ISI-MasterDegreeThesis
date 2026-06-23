@@ -61,7 +61,7 @@ from utils import *
 
 DBSCAN_THRESHOLD = 1000  # sotto → DBSCAN esatto, sopra → CLARA K-Medoids
 CLARA_M          = 1000  # dimensione campione CLARA
-CLARA_N_WORKERS  = 12    # core paralleli per le distanze Levenshtein
+CLARA_N_WORKERS  = 24    # core paralleli per le distanze Levenshtein
 
 
 def _compute_nearest(trace, medoid_traces, num_features):
@@ -220,7 +220,11 @@ def main(args):
     net = PetriNetP(tree)
     generator = Generator(args.n_traces, net)
     no_interval = args.no_interval
-    generator.generateTrace(False, no_interval=no_interval)
+    # La prima generazione (non condizionata) serve solo a costruire i dati di training dei
+    # classificatori XOR/Loop. In cov0 (né XOR né Loop) è lavoro inutile e su processi con
+    # loop molto annidati può durare a lungo senza alcun beneficio: la saltiamo.
+    if XOR or LOOP:
+        generator.generateTrace(False, no_interval=no_interval)
 
     save_vis_petri_net(net.net, net.initial_marking, net.final_marking, "bpmn.png", format="png")
 

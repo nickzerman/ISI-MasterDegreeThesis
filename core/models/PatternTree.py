@@ -91,8 +91,15 @@ class TracePatternMiner:
             counter_left = max(0, partition["numTraces"] - best_node.counter) # E aggiorno il counter del gruppo di prima
 
             if counter_left==0: # Se counter_left è 0 significa che sono andato avanti di 1 rispetto ad un pattern che ha come uscita solo questa strada (elimino il pattern precedente)
-                del partitions[biggerpartition]
-                step -= 1
+                if biggerpartition == "RESIDUALS":
+                    # RESIDUALS è il fallback obbligatorio di assign_time: non va mai eliminato.
+                    # Lo svuoto (così non verrà più scelto per essere splittato) ma resta nel dict,
+                    # mantenendo il tempo minimo assegnato da create_normalized_time_map.
+                    partitions[biggerpartition]["numTraces"] = 0
+                    partitions[biggerpartition]["nodes"] = []
+                else:
+                    del partitions[biggerpartition]
+                    step -= 1
             else: # Altrimenti aggiorno il vecchio pattern
                 partitions[biggerpartition]["numTraces"] = counter_left
                 partitions[biggerpartition]["nodes"] = nodes_left

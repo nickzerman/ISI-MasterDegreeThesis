@@ -9,6 +9,11 @@ from core import PetriNetP
 # del classificatore nei casi normali: un loop sano esce molto prima di MAX_LOOP_ITERS.
 MAX_LOOP_ITERS = 20
 
+# Cap dedicato ai loop SENZA classificatore (es. cov0): più basso del cap classificato
+# per tenere corte le tracce a loop annidati e non far esplodere il rejection-sampling
+# (limit) nella generazione condizionale.
+MAX_LOOP_ITERS_UNCLASSIFIED = 10
+
 def removeBackLoop(trace):
     """
         Remove back_Ln from trace
@@ -71,6 +76,7 @@ def generateTrace(net, initial_marking, final_marking, check, clean, no_interval
     end = tuple(["end_" + c for c in check if c!="L"]) # si escludono gli end loop
     loop = tuple(["end_L"]) + tuple(["back_L"])
     previous_step = ""
+    loop_iters = {}  # Quante volte ogni loop ha gia' ripetuto in questa traccia (per il cap di sicurezza)
 
     while current_marking != final_marking:  # Fino a quando il marking non corrisponde al finale, quindi fino a quando non ho finito di generare la traccia
         transitions = enabled_transitions(net,current_marking)  # Lista delle possibili transizioni possibili al current marking
@@ -86,6 +92,14 @@ def generateTrace(net, initial_marking, final_marking, check, clean, no_interval
         loops_end = [item for item in transitions if item.name.startswith(loop)]
         if loops_end:
             choice = random.choice(loops_end)
+            # Stesso cap di sicurezza del ramo classificato: senza, i loop annidati possono
+            # generare tracce lunghissime (questa generazione serve a creare i dati dei classificatori).
+            loop_region = choice.name.split("_")[1]
+            end_available = any(t.name == "end_" + loop_region for t in loops_end)
+            if loop_iters.get(loop_region, 0) >= MAX_LOOP_ITERS and end_available:
+                choice = next((t for t in loops_end if t.name == "end_" + loop_region), None)
+            elif choice.name.startswith("back_"):
+                loop_iters[loop_region] = loop_iters.get(loop_region, 0) + 1
             trace.append(choice.name)
             current_marking = execute(choice, net, current_marking)
         elif previous_step.startswith("start_X"):
@@ -192,7 +206,16 @@ def generateTraceCond(net, initial_marking, final_marking, check, classifier_dic
             loop_region = loop_choice.name.split("_")[1]
 
             if loop_region not in classifier_dict_loop:
-                choice = loop_choice
+                # Nessun classificatore (es. cov0): scelta casuale ma con un cap dedicato
+                # (MAX_LOOP_ITERS_UNCLASSIFIED). Senza cap, i loop annidati generano tracce
+                # illimitate che superano sempre 'limit' -> la generazione non termina mai.
+                end_available = any(t.name == "end_" + loop_region for t in loops_end)
+                if loop_iters.get(loop_region, 0) >= MAX_LOOP_ITERS_UNCLASSIFIED and end_available:
+                    choice = next((t for t in loops_end if t.name == "end_" + loop_region), None)
+                else:
+                    choice = loop_choice
+                    if loop_choice.name.startswith("back_"):
+                        loop_iters[loop_region] = loop_iters.get(loop_region, 0) + 1
             else:
                 clf, encoding_clf, pad_clf = classifier_dict_loop[loop_region]
 
