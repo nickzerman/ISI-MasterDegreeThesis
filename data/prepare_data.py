@@ -223,8 +223,14 @@ def main(args):
     # La prima generazione (non condizionata) serve solo a costruire i dati di training dei
     # classificatori XOR/Loop. In cov0 (né XOR né Loop) è lavoro inutile e su processi con
     # loop molto annidati può durare a lungo senza alcun beneficio: la saltiamo.
+    cond_limit = 1000
     if XOR or LOOP:
         generator.generateTrace(False, no_interval=no_interval)
+        # Use 99th percentile of uncleaned trace lengths as the rejection threshold
+        # for generateTraceCond. The default 1000 is too small for deeply nested
+        # loops (e.g. LOOP_SEQ_5 with cov1), causing all traces to be rejected and
+        # the while loop to run forever.
+        cond_limit = max(int(np.percentile([len(t) for t in generator.generatedTraces], 99)), 1000)
 
     save_vis_petri_net(net.net, net.initial_marking, net.final_marking, "bpmn.png", format="png")
 
@@ -257,7 +263,7 @@ def main(args):
         print(f"Loop classificati: {list(classifier_dict_loop.keys())} / {net.loop_regions}")
 
     # --- Rigenerazione condizionale ---
-    generator.generateTraceCond(classifier_dict_loop, classifier_dict_xor, no_interval=no_interval)
+    generator.generateTraceCond(classifier_dict_loop, classifier_dict_xor, limit=cond_limit, no_interval=no_interval)
 
     # --- Encoding ---
     df_region_identity = pd.DataFrame.from_dict(net.node_identity, orient="index").sort_index()
