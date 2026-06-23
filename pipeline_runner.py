@@ -43,6 +43,10 @@ VRAM_POLL_INTERVAL = 60    # secondi tra un check VRAM e l'altro
 VRAM_WAIT_TIMEOUT  = 1200  # timeout massimo attesa VRAM (20 minuti)
 VRAM_RETRY_MAX     = 2     # max retry per notebook che crashano con OOM
 
+NOTEBOOK_TIMEOUT   = 1800  # timeout (s) per i notebook variante (training di UN modello)
+OPTUNA_TIMEOUT     = None  # run_all_optuna fa 6 varianti x N trial: NON deve usare il timeout delle varianti.
+                           # None = nessun timeout (termina da solo, n_trials finito). Metti un numero (s) per un tetto di sicurezza.
+
 CHECKPOINT_FILE = RESULTS_DIR / "all_variants_results.json"
 
 BOT_TOKEN = "8910437774:AAHqyzkmTRtet_2ktDeJ-oJPbEbfPBYHPv8"
@@ -571,7 +575,7 @@ def _popen_isolated(cmd: list, env: dict) -> tuple[subprocess.Popen, callable]:
     return proc, kill_fn
 
 
-def run_notebook(name: str, nb_path: Path, output_dir: Path) -> tuple[bool, str]:
+def run_notebook(name: str, nb_path: Path, output_dir: Path, timeout: int | None = NOTEBOOK_TIMEOUT) -> tuple[bool, str]:
     """Esegue il notebook in un subprocess isolato con nuovo process group.
     Al termine (successo, errore o timeout) garantisce la terminazione dell'intero
     albero di processi figlio — incluso il kernel Jupyter — su Linux e Windows."""
@@ -606,7 +610,7 @@ def run_notebook(name: str, nb_path: Path, output_dir: Path) -> tuple[bool, str]
         proc, kill_fn = _popen_isolated([sys.executable, tmp_script], env)
 
         try:
-            stdout, _ = proc.communicate(timeout=1800)
+            stdout, _ = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             _log(f"⚠️ [{name}] TIMEOUT {nb_path.name} — terminazione forzata")
             kill_fn()
