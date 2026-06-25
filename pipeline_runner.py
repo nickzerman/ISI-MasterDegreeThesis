@@ -180,15 +180,7 @@ def get_processes():
         ])
     ])
 
-    LOOP_PAR_21 = Tree('loop', [
-        Tree('parallel', [
-            Tree('loop', [Tree('parallel', [
-                Tree('loop', [Tree('parallel', [Tree('task', [Token('NAME', 'T1')]), Tree('task', [Token('NAME', 'T2')])])]),
-                Tree('loop', [Tree('parallel', [Tree('task', [Token('NAME', 'T3')]), Tree('task', [Token('NAME', 'T4')]), Tree('task', [Token('NAME', 'T5')]), Tree('task', [Token('NAME', 'T6')])])])
-            ])]),
-            Tree('loop', [Tree('task', [Token('NAME', 'T7')])])
-        ])
-    ])
+    LOOP_PAR_15 = Tree('loop', [Tree('parallel', [Tree('loop', [Tree('parallel', [Tree('loop', [Tree('task', [Token('NAME', 'T1')])]), Tree('loop', [Tree('parallel', [Tree('task', [Token('NAME', 'T2')]), Tree('task', [Token('NAME', 'T3')])])])])]), Tree('loop', [Tree('parallel', [Tree('loop', [Tree('task', [Token('NAME', 'T4')])]), Tree('task', [Token('NAME', 'T5')])])])])])
 
     LOOP_XOR_PAR_SEQ_6 = Tree('parallel', [
         Tree('loop', [Tree('sequential', [Tree('loop', [Tree('task', [Token('NAME', 'T1')])]), Tree('task', [Token('NAME', 'T2')])])]),
@@ -316,8 +308,8 @@ def get_processes():
         for clust, nc in [(True, None)]:  # solo nocluster: par-in-loop -> 100% tracce uniche (anche con nointerval) -> clustering caro e senza bilanciamento utile
             for intv, ni in [("interval", False), ("nointerval", True)]:
                 for cov_name, kw in [("cov0", dict(no_xor=True, no_loop=True)), ("cov05", dict(no_xor=True, coverage=0.5)), ("cov1", dict(no_xor=True, coverage=1.0))]:
-                    name = f"lp_c21_{n//1000}k_{'nocluster' if clust else 'cluster'}_{intv}_{cov_name}"
-                    entry = {"name": name, "tree": LOOP_PAR_21, "args": _base(n, no_cluster=clust, ntpc=nc, **kw)}
+                    name = f"lp_c15_{n//1000}k_{'nocluster' if clust else 'cluster'}_{intv}_{cov_name}"
+                    entry = {"name": name, "tree": LOOP_PAR_15, "args": _base(n, no_cluster=clust, ntpc=nc, **kw)}
                     if ni:
                         entry["no_interval"] = True
                     processes.append(entry)
