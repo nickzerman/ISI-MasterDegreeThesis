@@ -252,7 +252,10 @@ def generateTraceCond(net, initial_marking, final_marking, check, classifier_dic
             xor_region = previous_step.split("_")[1]
 
             if xor_region not in classifier_dict_xor:
-                choice = random.choice(list(transitions))
+                xor_transitions = [t for t in transitions
+                                   if any(arc.source.name == "start_" + xor_region
+                                          for arc in t.in_arcs)]
+                choice = random.choice(xor_transitions)
             else:
                 clf, encoding_clf, pad_clf, class_to_branch = classifier_dict_xor[xor_region]
                 
