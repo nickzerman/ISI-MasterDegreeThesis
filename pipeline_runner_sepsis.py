@@ -14,7 +14,7 @@ papermill con parametri iniettati. Il notebook fa, ad OGNI processo:
   • generazione delle tracce sintetiche condizionate e salvataggio.
 
 Griglia (12 processi):
-  • Tracce generate:  15k, 50k, 100k   (N_TRACES_GENERATED)
+  • Tracce generate:  15ks, 50k, 100k   (N_TRACES_GENERATED)
   • Intervalli:       SEMPRE disattivati (NO_INTERVAL=True)
   • Clustering:       SEMPRE disattivato (il notebook è già nocluster)
   • Coverage:         4 angoli binari (loop_coverage, xor_coverage):
