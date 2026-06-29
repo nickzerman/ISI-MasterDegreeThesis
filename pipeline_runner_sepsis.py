@@ -13,10 +13,10 @@ papermill con parametri iniettati. Il notebook fa, ad OGNI processo:
   • distribuzioni dei tempi ricavate dai timestamp REALI (log1p) + regressori;
   • generazione delle tracce sintetiche condizionate e salvataggio.
 
-Griglia (12 processi):
-  • Tracce generate:  15ks, 50k, 100k   (N_TRACES_GENERATED)
+Griglia (24 processi):
+  • Tracce generate:  15k, 50k, 100k   (N_TRACES_GENERATED)
   • Intervalli:       SEMPRE disattivati (NO_INTERVAL=True)
-  • Clustering:       SEMPRE disattivato (il notebook è già nocluster)
+  • Clustering:       nocluster (CLUSTER=False) e cluster (CLUSTER=True)
   • Coverage:         4 angoli binari (loop_coverage, xor_coverage):
                         (0,0)  LOOP=False, XOR=False
                         (0,1)  LOOP=False, XOR=True,  COVERAGE=1.0  (solo XOR)
@@ -98,14 +98,16 @@ def get_processes():
 
     processes = []
     for n in [15000, 50000, 100000]:
-        for cov_name, kw in coverage_corners:
-            name = f"sepsis_{n // 1000}k_nocluster_nointerval_{cov_name}"
-            params = {
-                "N_TRACES_GENERATED": n,
-                "NO_INTERVAL":        True,   # intervalli sempre disattivati
-                **kw,
-            }
-            processes.append({"name": name, "params": params})
+        for cluster, ctag in [(False, "nocluster"), (True, "cluster")]:
+            for cov_name, kw in coverage_corners:
+                name = f"sepsis_{n // 1000}k_{ctag}_nointerval_{cov_name}"
+                params = {
+                    "N_TRACES_GENERATED": n,
+                    "NO_INTERVAL":        True,   # intervalli sempre disattivati
+                    "CLUSTER":            cluster,
+                    **kw,
+                }
+                processes.append({"name": name, "params": params})
     return processes
 
 PROCESSES = get_processes()
