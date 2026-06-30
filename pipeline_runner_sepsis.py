@@ -68,12 +68,12 @@ VRAM_POLL_INTERVAL = 60    # secondi tra un check VRAM e l'altro
 VRAM_WAIT_TIMEOUT  = 1200  # timeout massimo attesa VRAM (20 minuti)
 VRAM_RETRY_MAX     = 2     # max retry per notebook che crashano con OOM
 
-NOTEBOOK_TIMEOUT   = 1800  # timeout (s) per i notebook variante (training di UN modello)
-OPTUNA_TIMEOUT     = 7200  # run_all_optuna fa 6 varianti x N trial: tetto di sicurezza 2 ore.
+NOTEBOOK_TIMEOUT   = 3600  # timeout (s) per i notebook variante (training di UN modello)
+OPTUNA_TIMEOUT     = 3600  # run_all_optuna fa 6 varianti x N trial: tetto di sicurezza 2 ore.
 
 CHECKPOINT_FILE = RESULTS_DIR / "all_variants_results.json"
 
-BOT_TOKEN = "8910437774:AAHqyzkmTRtet_2ktDeJ-oJPbEbfPBYHPv8"
+BOT_TOKEN = "8855894256:AAGiSVyrZwwo-y2iNe0P_12rJFYVT-CkwWc"
 CHAT_ID   = "654952374"
 
 OPTUNA_PROGRESS_FILE = Path(tempfile.gettempdir()) / "optuna_pipeline_progress.json"
@@ -91,14 +91,12 @@ def get_processes():
     # regione è attiva; LOOP/XOR=False la disattivano (equivale a coverage 0).
     coverage_corners = [
         ("ll0_xl0", dict(LOOP=False, XOR=False, COVERAGE=1.0)),  # (0,0)
-        ("ll0_xl1", dict(LOOP=False, XOR=True,  COVERAGE=1.0)),  # (0,1) solo XOR
-        ("ll1_xl0", dict(LOOP=True,  XOR=False, COVERAGE=1.0)),  # (1,0) solo Loop
         ("ll1_xl1", dict(LOOP=True,  XOR=True,  COVERAGE=1.0)),  # (1,1) Loop + XOR
     ]
 
     processes = []
-    for n in [15000, 50000, 100000]:
-        for cluster, ctag in [(False, "nocluster"), (True, "cluster")]:
+    for n in [50000, 100000]:
+        for cluster, ctag in [(True, "cluster")]:
             for cov_name, kw in coverage_corners:
                 name = f"sepsis_{n // 1000}k_{ctag}_nointerval_{cov_name}"
                 params = {
@@ -123,10 +121,7 @@ OPTUNA_STEP = BASE_DIR / "experiments" / "run_all_optuna.ipynb"
 
 VARIANT_STEPS = [
     BASE_DIR / "variants" / "variant1_taskregion_time.ipynb",
-    BASE_DIR / "variants" / "variant2_taskregion_time.ipynb",
-    BASE_DIR / "variants" / "variant3_task_region_time.ipynb",
     BASE_DIR / "variants" / "variant4_unified.ipynb",
-    BASE_DIR / "variants" / "variant5_task_unified.ipynb",
     BASE_DIR / "variants" / "variant6_taskregion_unified.ipynb",
 ]
 
@@ -598,7 +593,7 @@ def main(stop_on_error: bool = False):
                     if nb.name not in launched and (DATA_DIR / f"v{i}_best_params.pt").exists():
                         if optuna_running:
                             running = sum(1 for f in variant_futures.values() if not f.done())
-                            if running >= 2:
+                            if running >= 3:
                                 break  # aspetta il prossimo ciclo
                         launched.add(nb.name)
                         variant_futures[nb.name] = variant_executor.submit(_launch_variant, nb)
